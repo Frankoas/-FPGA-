@@ -1,0 +1,45 @@
+{
+  "ir": {
+    "version": "0.1.0",
+    "modules": [
+      {
+        "id": "m1",
+        "name": "clk_divider",
+        "instance_name": "u_div",
+        "type": "base",
+        "ports": [
+          {"name": "clk_in", "direction": "input", "width": 1, "signed": false},
+          {"name": "rst_n", "direction": "input", "width": 1, "signed": false},
+          {"name": "clk_out", "direction": "output", "width": 1, "signed": false}
+        ],
+        "position": [0, 0],
+        "config": {"div_factor": 4}
+      },
+      {
+        "id": "m2",
+        "name": "led_controller",
+        "instance_name": "u_led",
+        "type": "base",
+        "ports": [
+          {"name": "clk", "direction": "input", "width": 1, "signed": false},
+          {"name": "rst_n", "direction": "input", "width": 1, "signed": false},
+          {"name": "led_out", "direction": "output", "width": 4, "signed": false}
+        ],
+        "position": [300, 0],
+        "config": {}
+      }
+    ],
+    "connections": [
+      {
+        "id": "c1",
+        "src_module": "m1",
+        "src_port": "clk_out",
+        "dst_module": "m2",
+        "dst_port": "clk",
+        "wire_name": "clk_divided"
+      }
+    ],
+    "wrapped_modules": [],
+    "top_module_name": "blinky_demo"
+  }
+}

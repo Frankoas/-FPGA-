@@ -1,0 +1,326 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Theme: Dark (default) — Professional FPGA IDE
+   ============================================================ */
+:root,
+[data-theme="dark"] {
+  /* Surfaces */
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --bg-canvas: #0f1729;
+  --bg-hover: #1c2333;
+  --bg-active: #252d3f;
+
+  /* Text */
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #555d68;
+  --text-inverse: #0d1117;
+
+  /* Borders */
+  --border-primary: #21262d;
+  --border-secondary: #30363d;
+  --border-accent: #58a6ff;
+
+  /* Accent */
+  --accent: #58a6ff;
+  --accent-hover: #79c0ff;
+  --accent-subtle: rgba(88, 166, 255, 0.12);
+  --accent-bg: rgba(88, 166, 255, 0.15);
+  --accent-ring: rgba(88, 166, 255, 0.4);
+
+  /* Success / Warning / Error */
+  --success: #3fb950;
+  --success-bg: rgba(63, 185, 80, 0.12);
+  --warning: #d29922;
+  --warning-bg: rgba(210, 153, 34, 0.12);
+  --error: #f85149;
+  --error-bg: rgba(248, 81, 73, 0.12);
+
+  /* Node types */
+  --node-base: #58a6ff;
+  --node-base-bg: rgba(88, 166, 255, 0.10);
+  --node-base-text: #79c0ff;
+  --node-base-badge: rgba(88, 166, 255, 0.18);
+
+  --node-wrapped: #bc8cff;
+  --node-wrapped-bg: rgba(188, 140, 255, 0.10);
+  --node-wrapped-text: #d2a8ff;
+  --node-wrapped-badge: rgba(188, 140, 255, 0.18);
+
+  --node-board: #f0883e;
+  --node-board-bg: rgba(240, 136, 62, 0.10);
+  --node-board-text: #ffa657;
+  --node-board-badge: rgba(240, 136, 62, 0.18);
+
+  /* Port colors */
+  --port-input: #3fb950;
+  --port-output: #f85149;
+  --port-inout: #d29922;
+
+  /* Edges */
+  --edge-default: #30363d;
+  --edge-selected: #58a6ff;
+  --edge-probed: #f0883e;
+  --edge-error: #f85149;
+
+  /* Panels */
+  --panel-bg: #161b22;
+  --panel-header: #0d1117;
+  --panel-header-hover: #1c2333;
+  --statusbar-bg: #0d1117;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 16px rgba(88, 166, 255, 0.15);
+
+  /* Scrollbar */
+  --scrollbar-thumb: #30363d;
+  --scrollbar-thumb-hover: #484f58;
+  --scrollbar-track: transparent;
+
+  color-scheme: dark;
+}
+
+/* ============================================================
+   Theme: Light
+   ============================================================ */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --bg-tertiary: #eaeef2;
+  --bg-canvas: #f0f2f5;
+  --bg-hover: #e8ecf1;
+  --bg-active: #dce1e7;
+
+  --text-primary: #1f2328;
+  --text-secondary: #59636e;
+  --text-muted: #868e96;
+  --text-inverse: #ffffff;
+
+  --border-primary: #d0d7de;
+  --border-secondary: #afb8c1;
+  --border-accent: #0969da;
+
+  --accent: #0969da;
+  --accent-hover: #0550ae;
+  --accent-subtle: rgba(9, 105, 218, 0.08);
+  --accent-bg: rgba(9, 105, 218, 0.12);
+  --accent-ring: rgba(9, 105, 218, 0.3);
+
+  --success: #1a7f37;
+  --success-bg: rgba(26, 127, 55, 0.10);
+  --warning: #9a6700;
+  --warning-bg: rgba(154, 103, 0, 0.10);
+  --error: #cf222e;
+  --error-bg: rgba(207, 34, 46, 0.10);
+
+  --node-base: #0969da;
+  --node-base-bg: rgba(9, 105, 218, 0.08);
+  --node-base-text: #0550ae;
+  --node-base-badge: rgba(9, 105, 218, 0.14);
+
+  --node-wrapped: #8250df;
+  --node-wrapped-bg: rgba(130, 80, 223, 0.08);
+  --node-wrapped-text: #6b3ab3;
+  --node-wrapped-badge: rgba(130, 80, 223, 0.14);
+
+  --node-board: #d84b00;
+  --node-board-bg: rgba(216, 75, 0, 0.08);
+  --node-board-text: #b33d00;
+  --node-board-badge: rgba(216, 75, 0, 0.14);
+
+  --port-input: #1a7f37;
+  --port-output: #cf222e;
+  --port-inout: #9a6700;
+
+  --edge-default: #afb8c1;
+  --edge-selected: #0969da;
+  --edge-probed: #d84b00;
+  --edge-error: #cf222e;
+
+  --panel-bg: #ffffff;
+  --panel-header: #f6f8fa;
+  --panel-header-hover: #e8ecf1;
+  --statusbar-bg: #f6f8fa;
+
+  --shadow-xs: 0 1px 2px rgba(31, 35, 40, 0.06);
+  --shadow-sm: 0 1px 3px rgba(31, 35, 40, 0.08);
+  --shadow-md: 0 8px 24px rgba(31, 35, 40, 0.10);
+  --shadow-lg: 0 16px 48px rgba(31, 35, 40, 0.12);
+  --shadow-glow: 0 0 20px rgba(9, 105, 218, 0.08);
+
+  --scrollbar-thumb: #d0d7de;
+  --scrollbar-thumb-hover: #afb8c1;
+  --scrollbar-track: transparent;
+
+  color-scheme: light;
+}
+
+/* ============================================================
+   Base Reset
+   ============================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ============================================================
+   Scrollbar
+   ============================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+/* ============================================================
+   ReactFlow Overrides
+   ============================================================ */
+.react-flow__background {
+  background: var(--bg-canvas) !important;
+}
+
+.react-flow__controls {
+  box-shadow: var(--shadow-sm) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+}
+
+.react-flow__controls button {
+  background: var(--panel-bg) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+  fill: var(--text-primary) !important;
+  width: 28px !important;
+  height: 28px !important;
+  transition: background 0.15s !important;
+}
+
+.react-flow__controls button:hover {
+  background: var(--bg-hover) !important;
+}
+
+.react-flow__minimap {
+  background: var(--panel-bg) !important;
+  border: 1px solid var(--border-primary) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.react-flow__attribution {
+  display: none !important;
+}
+
+/* Node selection ring */
+.react-flow__node.selected > div {
+  outline: none !important;
+}
+
+/* Edge styling */
+.react-flow__edge-path {
+  stroke-width: 2;
+  transition: stroke 0.15s;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--edge-selected) !important;
+  stroke-width: 3;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: var(--text-secondary);
+}
+
+/* Handle hover */
+.react-flow__handle:hover {
+  transform: scale(1.3) !important;
+  transition: transform 0.15s !important;
+}
+
+.react-flow__handle-connecting {
+  transform: scale(1.3) !important;
+}
+
+.react-flow__handle-valid {
+  box-shadow: 0 0 0 4px var(--accent-ring) !important;
+}
+
+/* Connection line */
+.react-flow__connection-line {
+  stroke: var(--accent) !important;
+  stroke-width: 2 !important;
+}
+
+/* ============================================================
+   Utility animations
+   ============================================================ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(88, 166, 255, 0.2); }
+  50% { box-shadow: 0 0 20px rgba(88, 166, 255, 0.4); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.2s ease-out;
+}
+
+/* ============================================================
+   Focus ring
+   ============================================================ */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: 4px;
+}

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python --version)",
+      "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"D:\\\\claude\\\\prj\\\\backend\\\\generate_manual_cn.py\"\\); Write-Output \"First bytes: $\\([System.Text.Encoding]::UTF8.GetString\\($bytes[0..2]\\)\\)\"; $bom = $bytes[0..2]; Write-Output \"BOM check: $\\($bom[0].ToString\\('X2'\\)\\) $\\($bom[1].ToString\\('X2'\\)\\) $\\($bom[2].ToString\\('X2'\\)\\)\")",
+      "PowerShell(cmd /c \"node --version && npm --version\")"
+    ]
+  }
+}
