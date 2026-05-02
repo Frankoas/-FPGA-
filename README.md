@@ -1,549 +1,1318 @@
-# FPGA可视化编程工具 — 实现路径与工具方案
+﻿# FPGA 可视化编程工具 — 使用与测试手册
 
-> 对应文档：`# FPGA可视化编程工具任务计划书.md`
-> 每个任务给出推荐实现路径（怎么做）与推荐工具/库（用什么）。
+> **版本**：0.3.0  
+> **更新日期**：2026-05-02  
+> **适用对象**：开发者、测试人员、用户  
+> **本次更新**：前端完全重写（参考设计 UI）、前后端字段命名对齐、全部 API 接通、修复 @xyflow/react v12 兼容性  
 
 ---
 
-## 第一阶段：基础框架与节点编辑器
+## 目录
 
-### 任务 1.1：技术选型与架构设计
+1. [项目概述](#1-项目概述)  
+2. [环境要求](#2-环境要求)  
+3. [项目结构](#3-项目结构)  
+4. [快速启动](#4-快速启动)  
+5. [后端 API 参考](#5-后端-api-参考)  
+   - 5.1 [健康检查](#51-健康检查-get-apihealth)  
+   - 5.2 [生成 Top 模块](#52-生成-top-模块-post-apigeneratetop)  
+   - 5.3 [生成 Testbench](#53-生成-testbench-post-apigeneratetestbench)  
+   - 5.4 [解析 Verilog](#54-解析-verilog-post-apiparseverilog)  
+   - 5.5 [解析 VCD 波形](#55-解析-vcd-波形-post-apiparsevcd)  
+   - 5.6 [保存工程](#56-保存工程-post-apiprojectsave)  
+   - 5.7 [加载工程](#57-加载工程-post-apiprojectload)  
+   - 5.8 [编译](#58-编译-postapisimulatecompile)  
+   - 5.9 [运行仿真](#59-运行仿真-postapisimulaterun)  
+6. [前端使用指南](#6-前端使用指南)  
+   - 6.1 [整体布局](#61-整体布局)  
+   - 6.2 [菜单栏](#62-菜单栏)  
+   - 6.3 [工具栏](#63-工具栏)  
+   - 6.4 [模块库与左侧面板](#64-模块库与左侧面板)  
+   - 6.5 [画布操作](#65-画布操作)  
+   - 6.6 [连线系统](#66-连线系统)  
+   - 6.7 [属性面板](#67-属性面板)  
+   - 6.8 [代码预览与底部面板](#68-代码预览与底部面板)  
+   - 6.9 [主题切换](#69-主题切换)  
+   - 6.10 [键盘快捷键](#610-键盘快捷键)  
+7. [完整工作流程](#7-完整工作流程)  
+8. [测试指南](#8-测试指南)  
+9. [常见问题](#9-常见问题)  
+10. [附录](#10-附录)  
 
-**实现路径**
-1. 确定整体架构：Electron 桌面壳 + React 前端 + Python 后端服务（独立进程通信）。
-2. 前端负责画布交互与 UI；Python 后端负责解析、代码生成、仿真调度。
-3. 前后端通过 HTTP (localhost) 或 stdin/stdout JSON-RPC 通信。
-4. 定义数据流：节点图 → IR (JSON) → Python 代码生成 → Verilog/VHDL 文件。
-5. 项目结构采用 monorepo：`frontend/` + `backend/` + `shared-types/`。
+---
 
-**推荐工具**
-| 层面 | 工具 | 理由 |
+## 1. 项目概述
+
+FPGA 可视化编程工具是一套基于 Web 的 FPGA 图形化开发环境。用户通过在画布上拖放模块、连接端口来构建数字电路，系统自动生成 Verilog 代码、Testbench，并可驱动仿真器完成验证。
+
+### 核心架构
+
+```
+前端 (React + TypeScript)          后端 (FastAPI + Python)
+┌─────────────────────────┐        ┌──────────────────────────┐
+│  画布 (ReactFlow)        │  IR    │  代码生成器 (Jinja2)      │
+│  模块库                   │ ────→ │  仿真调度器               │
+│  属性编辑器               │  JSON  │  波形解析器 (VCD)         │
+│  Monaco 代码预览          │ ←──── │  工程文件管理             │
+│  主题切换 (明/暗)         │        │                         │
+└─────────────────────────┘        └──────────────────────────┘
+
+中间表示 (IR)：前端画布状态 ⇄ 后端生成的唯一 JSON 交换格式
+```
+
+### 关键特性
+
+- 19 个内置模块（基本门电路、组合逻辑、时序逻辑、IO 接口）
+- 拖放式模块放置，端口对齐连线
+- 连线验证（方向检查、多驱动防止、自连接/重复连接检测）
+- 一键生成 Verilog Top 模块和 Testbench
+- Monaco Editor 语法高亮代码预览
+- 明/暗双主题，CSS 变量驱动即时切换
+- 前后端分离，Vite 代理 /api 到 FastAPI 后端
+- .fpga.json 工程文件持久化
+
+---
+
+## 2. 环境要求
+
+### 后端
+
+| 组件 | 版本要求 | 说明 |
+|------|---------|------|
+| Python | 3.11+ | 建议 3.12 |
+| pip | 最新 | 随 Python 安装 |
+| 虚拟环境 | venv | 隔离依赖 |
+
+**Python 依赖（requirements.txt）：**
+
+```
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+pydantic>=2.0.0
+jinja2>=3.1.0
+pytest>=8.0.0
+pytest-asyncio>=0.25.0
+httpx>=0.28.0
+```
+
+### 前端
+
+| 组件 | 版本要求 | 说明 |
+|------|---------|------|
+| Node.js | 18+ | 建议 24 LTS |
+| npm | 9+ | 随 Node 安装 |
+| 浏览器 | Chrome / Edge / Firefox 最新 | 支持 ES2023 |
+
+**前端依赖（package.json 核心）：**
+
+```
+react 19, react-dom 19
+@xyflow/react 12 (ReactFlow)
+zustand 5 (状态管理)
+@monaco-editor/react (代码编辑器)
+dagre (布局算法)
+lucide-react (图标库)
+motion (动画库, framer-motion)
+tailwindcss 4, @tailwindcss/vite
+vite 8
+```
+
+### 可选（仿真功能需要）
+
+| 组件 | 说明 |
+|------|------|
+| ModelSim / Questa | 商业仿真器，用于编译和运行仿真 |
+| Icarus Verilog (iverilog) | 开源 Verilog 仿真器 |
+
+---
+
+## 3. 项目结构
+
+```
+project/
+├── backend/                        # 后端 (Python + FastAPI)
+│   ├── main.py                     # 入口：FastAPI app 实例，CORS，路由挂载
+│   ├── requirements.txt            # Python 依赖
+│   ├── pytest.ini                  # pytest 配置
+│   ├── app/
+│   │   ├── routes.py               # 所有 9 个 API 端点定义
+│   │   ├── models/
+│   │   │   └── ir.py               # IR 数据模型 (Pydantic v2)
+│   │   ├── generators/
+│   │   │   ├── top.py              # Top 模块生成器 (Jinja2)
+│   │   │   ├── testbench.py        # Testbench 生成器 (Jinja2)
+│   │   │   └── templates/
+│   │   │       ├── top.v.j2        # Top 模板
+│   │   │       └── testbench.v.j2  # Testbench 模板
+│   │   ├── parser/
+│   │   │   └── verilog_parser.py   # Verilog 解析器
+│   │   ├── simulator/
+│   │   │   ├── base.py             # 仿真器抽象基类
+│   │   │   └── modelsim.py         # ModelSim 实现
+│   │   └── utils/
+│   │       └── vcd_parser.py       # VCD 波形解析器
+│   └── tests/
+│       ├── test_api.py             # API 端点测试 (23 个用例)
+│       └── test_ir.py              # IR 模型测试
+│
+├── frontend/                       # 前端 (React + TypeScript)
+│   ├── vite.config.ts              # Vite 配置 (代理 /api、路径别名)
+│   ├── tsconfig.app.json           # TypeScript 配置
+│   ├── index.html                  # HTML 入口
+│   └── src/
+│       ├── main.tsx                # React 入口
+│       ├── App.tsx                 # 主布局 (菜单+工具栏+面板+画布+状态栏)
+│       ├── index.css               # 全局样式 + Tailwind + 主题变量
+│       ├── types/
+│       │   └── index.ts            # 全部 TypeScript 类型定义
+│       ├── services/
+│       │   └── api.ts              # HTTP API 服务层 (9 个端点)
+│       ├── stores/
+│       │   ├── uiStore.ts          # UI 状态 (主题/面板/状态栏)
+│       │   ├── canvasStore.ts      # 画布状态 (节点/边/连线验证)
+│       │   ├── projectStore.ts     # 工程状态 (保存/加载/脏标记)
+│       │   ├── moduleLibraryStore.ts # 模块库 (19 个模板/搜索)
+│       │   └── simulationStore.ts  # 仿真状态 (编译/运行/波形)
+│       └── components/
+│           ├── layout/
+│           │   ├── Header.tsx      # 顶部工具栏
+│           │   └── StatusBar.tsx   # 底部状态栏
+│           ├── panels/
+│           │   ├── ModuleLibrary.tsx   # 左侧模块库面板
+│           │   ├── PropertiesPanel.tsx # 右侧属性编辑面板
+│           │   └── BottomPanel.tsx     # 底部面板 (代码/日志/波形)
+│           └── canvas/
+│               ├── Canvas.tsx      # 画布主视图
+│               └── nodes/
+│                   └── BaseModuleNode.tsx # 自定义模块节点
+│
+└── FPGA_VISUAL_TOOL_MANUAL.md      # 本手册
+```
+
+---
+
+## 4. 快速启动
+
+### 4.1 启动后端
+
+```bash
+# 1. 进入后端目录
+cd D:\claude\prj\backend
+
+# 2. 创建并激活虚拟环境（首次）
+python -m venv venv
+.\venv\Scripts\activate
+
+# 3. 安装依赖（首次）
+pip install -r requirements.txt
+
+# 4. 启动服务
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+启动成功标志：
+
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [xxxxx] using WatchFiles
+INFO:     Started server process [xxxxx]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+```
+
+### 4.2 启动前端
+
+```bash
+# 1. 进入前端目录
+cd D:\claude\prj\frontend
+
+# 2. 安装依赖（首次）
+npm install
+
+# 3. 启动开发服务器
+npm run dev
+```
+
+启动成功标志：
+
+```
+VITE v8.0.10  ready in 423 ms
+➜  Local:   http://localhost:5173/
+```
+
+### 4.3 验证服务
+
+**验证后端：**
+
+```powershell
+# PowerShell
+Invoke-WebRequest -Uri "http://localhost:8000/api/health" -UseBasicParsing | Select-Object -ExpandProperty Content
+```
+
+期望输出：`{"status":"ok","service":"fpga-visual-tool-backend"}`
+
+**验证前端：**
+
+浏览器打开 `http://localhost:5173`，应看到 FPGA 可视化编程工具完整界面。
+
+### 4.4 访问 API 文档
+
+后端启动后访问：
+- Swagger UI：`http://localhost:8000/docs`
+- ReDoc：`http://localhost:8000/redoc`
+
+---
+
+## 5. 后端 API 参考
+
+### 通用说明
+
+- **Base URL**：`http://localhost:8000/api`
+- **Content-Type**：`application/json`
+- **请求方式**：除 `/health` 为 GET 外，其余均为 POST
+- **响应格式**：JSON，统一包含 `success` 字段
+- **错误处理**：HTTP 4xx/5xx，响应体包含 `detail` 字段
+
+---
+
+### 5.1 健康检查 `GET /api/health`
+
+检查后端服务是否正常运行。
+
+**请求示例：**
+
+```powershell
+# PowerShell
+Invoke-RestMethod -Uri "http://localhost:8000/api/health" -Method Get
+```
+
+```bash
+# curl
+curl http://localhost:8000/api/health
+```
+
+**响应：**
+
+```json
+{
+  "status": "ok",
+  "service": "fpga-visual-tool-backend"
+}
+```
+
+**pytest 测试：**
+
+```python
+@pytest.mark.asyncio
+async def test_health(client: AsyncClient):
+    resp = await client.get("/api/health")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+```
+
+---
+
+### 5.2 生成 Top 模块 `POST /api/generate/top`
+
+根据 IR（中间表示）生成顶层 Verilog 模块。
+
+**请求体：**
+
+```json
+{
+  "ir": {
+    "version": "0.1.0",
+    "modules": [
+      {
+        "id": "m1",
+        "name": "counter",
+        "type": "base",
+        "instance_name": "counter_inst",
+        "ports": [
+          { "name": "clk", "direction": "input", "width": 1, "signed": false },
+          { "name": "q", "direction": "output", "width": 4, "signed": false }
+        ],
+        "position": [0, 0],
+        "config": {}
+      }
+    ],
+    "connections": [],
+    "wrapped_modules": [],
+    "top_module_name": "demo_top"
+  }
+}
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "verilog": "module demo_top (\n  input wire clk,\n  output wire [3:0] q\n);\n\n  counter counter_inst (\n    .clk(clk),\n    .q(q)\n  );\n\nendmodule\n"
+}
+```
+
+**PowerShell 测试：**
+
+```powershell
+$body = @{
+  ir = @{
+    version = "0.1.0"
+    modules = @(
+      @{
+        id = "m1"
+        name = "counter"
+        type = "base"
+        instance_name = "counter_inst"
+        ports = @(
+          @{ name = "clk"; direction = "input"; width = 1; signed = $false },
+          @{ name = "q"; direction = "output"; width = 4; signed = $false }
+        )
+        position = @(0, 0)
+        config = @{}
+      }
+    )
+    connections = @()
+    wrapped_modules = @()
+    top_module_name = "demo_top"
+  }
+} | ConvertTo-Json -Depth 10
+
+Invoke-RestMethod -Uri "http://localhost:8000/api/generate/top" -Method Post -Body $body -ContentType "application/json"
+```
+
+**curl 测试：**
+
+```bash
+curl -X POST http://localhost:8000/api/generate/top \
+  -H "Content-Type: application/json" \
+  -d '{"ir":{"version":"0.1.0","modules":[{"id":"m1","name":"counter","type":"base","instance_name":"counter_inst","ports":[{"name":"clk","direction":"input","width":1,"signed":false},{"name":"q","direction":"output","width":4,"signed":false}],"position":[0,0],"config":{}}],"connections":[],"wrapped_modules":[],"top_module_name":"demo_top"}}'
+```
+
+**pytest 测试（3 个用例）：**
+
+| 用例 | 说明 |
+|------|------|
+| `test_generate_top` | 单模块顶层生成 |
+| `test_generate_top_empty` | 空模块列表 |
+| `test_generate_top_multiple_modules` | 多模块互联 |
+
+---
+
+### 5.3 生成 Testbench `POST /api/generate/testbench`
+
+根据 IR + 仿真配置生成 Verilog Testbench。
+
+**请求体：**
+
+```json
+{
+  "ir": {
+    "version": "0.1.0",
+    "modules": [
+      {
+        "id": "m1",
+        "name": "counter",
+        "type": "base",
+        "ports": [
+          { "name": "clk", "direction": "input", "width": 1, "signed": false },
+          { "name": "rst_n", "direction": "input", "width": 1, "signed": false },
+          { "name": "q", "direction": "output", "width": 4, "signed": false }
+        ],
+        "position": [0, 0],
+        "config": {}
+      }
+    ],
+    "connections": [],
+    "wrapped_modules": [],
+    "top_module_name": "counter_tb"
+  },
+  "simulation": {
+    "simulator": "iverilog",
+    "clock_period_ns": 10.0,
+    "reset_cycles": 5,
+    "sim_time_us": 100.0,
+    "monitored_signals": ["clk", "rst_n", "q"]
+  }
+}
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "verilog": "`timescale 1ns / 1ps\n\nmodule counter_tb;\n  reg clk;\n  reg rst_n;\n  wire [3:0] q;\n\n  ...\n\nendmodule\n"
+}
+```
+
+**curl 测试：**
+
+```bash
+curl -X POST http://localhost:8000/api/generate/testbench \
+  -H "Content-Type: application/json" \
+  -d '{"ir":{"version":"0.1.0","modules":[{"id":"m1","name":"counter","type":"base","ports":[{"name":"clk","direction":"input","width":1,"signed":false},{"name":"rst_n","direction":"input","width":1,"signed":false},{"name":"q","direction":"output","width":4,"signed":false}],"position":[0,0],"config":{}}],"connections":[],"wrapped_modules":[],"top_module_name":"counter_tb"},"simulation":{"simulator":"iverilog","clock_period_ns":10.0,"reset_cycles":5,"sim_time_us":100.0,"monitored_signals":[]}}'
+```
+
+---
+
+### 5.4 解析 Verilog `POST /api/parse/verilog`
+
+解析 Verilog 文件或目录，提取模块信息（模块名、端口、例化关系）。
+
+**请求体：**
+
+```json
+{
+  "file_path": "D:/projects/my_design/top.v"
+}
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "modules": [
+    {
+      "name": "top",
+      "ports": [
+        { "name": "clk", "direction": "input", "width": 1 },
+        { "name": "led", "direction": "output", "width": 4 }
+      ],
+      "instantiations": [
+        { "module_name": "counter", "instance_name": "u_counter", "connections": {} }
+      ]
+    }
+  ]
+}
+```
+
+**curl 测试：**
+
+```bash
+curl -X POST http://localhost:8000/api/parse/verilog \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "D:/path/to/your/module.v"}'
+```
+
+**pytest 测试（3 个用例）：** `test_parse_verilog_file`、`test_parse_verilog_directory`、`test_parse_verilog_not_found`
+
+---
+
+### 5.5 解析 VCD 波形 `POST /api/parse/vcd`
+
+解析 VCD（Value Change Dump）波形文件，返回信号变化数据。
+
+**请求体：**
+
+```json
+{
+  "file_path": "D:/sim_output/waveform.vcd"
+}
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "waveform": {
+    "signals": [
+      {
+        "name": "clk",
+        "width": 1,
+        "signed": false,
+        "changes": [
+          { "time_ns": 0, "value": "0" },
+          { "time_ns": 5, "value": "1" },
+          { "time_ns": 10, "value": "0" }
+        ]
+      }
+    ],
+    "total_time_ns": 1000.0,
+    "timescale": "1ns"
+  }
+}
+```
+
+**curl 测试：**
+
+```bash
+curl -X POST http://localhost:8000/api/parse/vcd \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "D:/path/to/waveform.vcd"}'
+```
+
+**pytest 测试（2 个用例）：** `test_parse_vcd`、`test_parse_vcd_not_found`
+
+---
+
+### 5.6 保存工程 `POST /api/project/save`
+
+将完整工程状态保存为 .fpga.json 文件。
+
+**请求体：**
+
+```json
+{
+  "project": {
+    "version": "0.1.0",
+    "name": "my_fpga_project",
+    "ir": {
+      "version": "0.1.0",
+      "modules": [],
+      "connections": [],
+      "wrapped_modules": [],
+      "top_module_name": "top"
+    },
+    "board": null,
+    "simulation": null,
+    "canvas_state": {}
+  },
+  "file_path": "D:/projects/my_fpga_project.fpga.json"
+}
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "path": "D:\\projects\\my_fpga_project.fpga.json"
+}
+```
+
+**curl 测试：**
+
+```bash
+curl -X POST http://localhost:8000/api/project/save \
+  -H "Content-Type: application/json" \
+  -d '{"project":{"version":"0.1.0","name":"test","ir":{"version":"0.1.0","modules":[],"connections":[],"wrapped_modules":[],"top_module_name":"top"},"board":null,"simulation":null,"canvas_state":{}},"file_path":"test_output.fpga.json"}'
+```
+
+---
+
+### 5.7 加载工程 `POST /api/project/load`
+
+加载 .fpga.json 工程文件。
+
+**请求体：**
+
+```json
+{
+  "file_path": "D:/projects/my_fpga_project.fpga.json"
+}
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "project": {
+    "version": "0.1.0",
+    "name": "my_fpga_project",
+    "ir": { "version": "0.1.0", "modules": [], "connections": [], "wrapped_modules": [], "top_module_name": "top" },
+    "board": null,
+    "simulation": null,
+    "canvas_state": {}
+  }
+}
+```
+
+**curl 测试：**
+
+```bash
+curl -X POST http://localhost:8000/api/project/load \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "test_output.fpga.json"}'
+```
+
+---
+
+### 5.8 编译 `POST /api/simulate/compile`
+
+使用 ModelSim 编译 HDL 源文件。
+
+> ⚠️ 需要安装 ModelSim/Questa 仿真器。
+
+**请求体：**
+
+```json
+{
+  "sources": ["D:/design/top.v", "D:/design/counter.v"],
+  "work_dir": "D:/sim_work"
+}
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "stdout": "ModelSim> vlib work\nModelSim> vlog top.v\n...",
+  "stderr": "",
+  "errors": [],
+  "warnings": []
+}
+```
+
+---
+
+### 5.9 运行仿真 `POST /api/simulate/run`
+
+运行仿真并生成 VCD 波形文件。
+
+> ⚠️ 需要安装 ModelSim/Questa 仿真器。
+
+**请求体：**
+
+```json
+{
+  "top_module": "counter_tb",
+  "sim_time": "100us",
+  "work_dir": "D:/sim_work",
+  "sources": ["D:/design/counter.v", "D:/design/counter_tb.v"]
+}
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "vcd_path": "D:/sim_work/counter_tb.vcd",
+  "stdout": "simulation finished...",
+  "errors": [],
+  "warnings": []
+}
+```
+
+---
+
+### API 端点速查表
+
+| # | 方法 | 端点 | 功能 | 需要仿真器 |
+|---|------|------|------|:---:|
+| 1 | GET | `/api/health` | 健康检查 | |
+| 2 | POST | `/api/generate/top` | 生成顶层模块 | |
+| 3 | POST | `/api/generate/testbench` | 生成 Testbench | |
+| 4 | POST | `/api/parse/verilog` | 解析 Verilog | |
+| 5 | POST | `/api/parse/vcd` | 解析 VCD 波形 | |
+| 6 | POST | `/api/project/save` | 保存工程 | |
+| 7 | POST | `/api/project/load` | 加载工程 | |
+| 8 | POST | `/api/simulate/compile` | 编译 | ✅ |
+| 9 | POST | `/api/simulate/run` | 运行仿真 | ✅ |
+
+---
+
+## 6. 前端使用指南
+
+### 6.1 整体布局
+
+```
+┌──────────────────────────────────────────────────────┐
+│ Header (bg-primary 深蓝)                               │
+│ 🖥 FPGA Visual Builder  File Edit Testbench │ 💾SAVE ✨LAYOUT 📝GENERATE ▶SIMULATE │
+├────────────┬────────────────────────┬────────────────┤
+│ ModuleLibrary │                    │ PropertiesPanel│
+│ (w-64)       │   Canvas (flex-1)    │ (280px 可折叠)  │
+│              │                      │                │
+│ 🔍 搜索      │ ReactFlow 节点+连线  │ ⚙ 属性编辑器   │
+│ ⊿ 门电路    │ 背景网格 · 控件 · 小地图│ 模块/连线详情  │
+│ ∑ 组合逻辑  │                      │ 端口列表       │
+│ ⏳ 时序逻辑  │ 节点可拖拽移动        │ 配置与删除     │
+│ ⚡ IO接口    │ drop 精确定位         │               │
+│              │ 连线方向/多驱/自连验证 │               │
+├────────────┴────────────────────────┴────────────────┤
+│ BottomPanel (motion 可折叠, h=200)  代码 │ 日志 │ 波形 │
+│ ┌──────────────────────────────────────────────────┐ │
+│ │ Monaco Editor — Verilog 语法高亮 · 暗/亮自适应    │ │
+│ └──────────────────────────────────────────────────┘ │
+├──────────────────────────────────────────────────────┤
+│ StatusBar (h-6)  ● 就绪 │ Nodes:3 | Edges:5 │ SNAP  LIGHT │
+└──────────────────────────────────────────────────────┘
+```
+
+### 6.2 Header 工具栏（合并菜单栏 + 工具栏）
+
+v0.3.0 将原 MenuBar 和 Toolbar 合并为单一 Header 组件（深蓝 bg-primary h-12）。
+
+**左侧区域：**
+- 🖥 FPGA Visual Builder 标题 + File / Edit / Testbench 导航按钮
+
+**右侧按钮组：**
+
+| 按钮 | 图标 | 功能 |
 |------|------|------|
-| 桌面壳 | Electron 28+ | 跨平台、成熟生态、可调用本地进程 |
-| 前端框架 | React 18 + TypeScript | 组件化、强类型、生态丰富 |
-| 构建工具 | Vite (electron-vite) | 快速 HMR、Electron 集成好 |
-| 后端语言 | Python 3.11+ | FPGA 工具链 (TCL/解析) 生态成熟 |
-| 后端框架 | FastAPI | 异步支持、自动 OpenAPI、轻量 |
-| IPC | HTTP localhost + WebSocket | 简单可靠、可单独调试后端 |
+| SAVE | 💾 Save | 调用 buildIR + saveProject API，保存为 .fpga.json |
+| LAYOUT | ✨ Wand2 | dagre 自动布局排布模块 |
+| GENERATE | 📝 Code | 调用 /api/generate/top，结果显示在底部 CODE 面板 |
+| SIMULATE | ▶ Play | 打开底部日志面板（完整仿真待后端 ModelSim） |
+
+按钮位于 bg-white/10 半透明圆角容器内，使用 lucide-react 图标 + 大写标签，竖线分隔。
+
+### 6.3 模块库与左侧面板
+
+### 6.4 模块库与左侧面板
+
+左侧面板包含 3 个标签页：
+
+**标签页说明：**
+
+| 标签 | 功能 |
+|------|------|
+| 模块库 | 浏览、搜索、拖放模块到画布 |
+| 信号 | 查看仿真监测信号列表 |
+| 文件 | 浏览项目文件结构 |
+
+**模块库 19 个内置模块：**
+
+| 分类 | 模块 | 端口数 |
+|------|------|:---:|
+| 基本门电路 | and_gate | 3 |
+| | or_gate | 3 |
+| | not_gate | 2 |
+| | xor_gate | 3 |
+| | nand_gate | 3 |
+| | nor_gate | 3 |
+| 组合逻辑 | mux_2to1 | 4 |
+| | decoder_2to4 | 3 |
+| | encoder_4to2 | 3 |
+| | adder_n | 5 |
+| 时序逻辑 | d_flipflop | 5 |
+| | register_n | 5 |
+| | counter_n | 5 |
+| | shift_reg | 5 |
+| IO 接口 | gpio_input | 2 |
+| | gpio_output | 2 |
+| | uart_tx | 6 |
+| | uart_rx | 5 |
+
+**添加模块的两种方式：**
+
+1. **拖放**：从模块库拖动模块到画布，在目标位置释放鼠标。系统使用 `screenToFlowPosition()` 将屏幕坐标精确转换为画布坐标，模块准确定位在释放位置
+2. **点击**：直接点击模块卡片，模块按阶梯式偏移自动排列（每次偏移 80px 纵向 / 250px 横向），避免堆叠重叠
+
+**模块库 UI 改进：**
+- 搜索框带放大镜图标，`focus` 时显示蓝色光晕
+- 分类筛选使用彩色 `chip` 标签（全部/⊿ 门电路/∑ 组合逻辑/⏳ 时序逻辑/⚡ IO接口）
+- 模块卡片带类型颜色圆点 + 发光效果，hover 时显示 `＋` 图标并高亮边框
+- 分类可折叠，折叠状态旋转箭头指示器
+- 每个分类标题右侧显示模块数量 badge
+
+**搜索模块：**
+
+在搜索框中输入关键字（如 "gate"、"uart"、"counter"），列表即时过滤。同时可通过分类 chip 按钮缩小范围。
+
+### 6.5 画布操作
+
+**ReactFlow 画布提供以下交互：**
+
+| 操作 | 方式 |
+|------|------|
+| 平移画布 | 鼠标左键拖动空白区域 / 中键拖动 / 触控板双指滑动 |
+| 缩放 | 滚轮 / 触控板捏合 |
+| 选中模块 | 单击模块节点（显示蓝色外发光 + 阴影） |
+| 选中连线 | 单击连线（高亮为强调色，线宽加粗） |
+| 多选 | 按住 Shift 拖动框选 |
+| 移动模块 | **拖动模块节点**（`nodesDraggable={true}`，所有模块可自由拖动） |
+| 删除选中 | Delete 或 Backspace 键 |
+| 取消选中 | 单击画布空白区域 |
+
+**拖放定位修复 (v0.2.0)：**
+- 旧版使用 `clientX - 260` 硬编码偏移，模块堆叠在同一位置
+- 新版使用 `screenToFlowPosition()` 精确转换屏幕坐标为画布坐标
+- 拖放模块准确定位在鼠标释放位置，支持画布缩放/平移后的精确放置
+
+**模块节点外观（v0.2.0 新设计）：**
+
+```
+┌─────────────────────────┐
+│  ◆ counter_inst    [IP] │  ← 头部（渐变背景 + 类型 badge）
+├─────────────────────────┤
+│  ● clk           q ●    │  ← 端口带发光圆点手柄
+│  ● rst_n     [双向]●    │     绿=输入 红=输出 黄=双向
+│  ● en                  │     输入在左侧，输出/双向在右侧
+├─────────────────────────┤
+│       COUNTER_N          │  ← 底部：原始模块名（小字大写）
+└─────────────────────────┘
+```
+- 圆角 12px（rounded-xl），选中时带 3px 蓝色光环 + 大阴影
+- 端口手柄 10px 直径，白色边框 2.5px，hover 时放大 1.3×
+- 底部原始模块名以大写小字显示，背景透明
+- 头部使用渐变背景（类型色透明→半透明）
+
+### 6.6 连线系统
+
+**连线规则（自动验证）：**
+
+| 规则 | 说明 |
+|------|------|
+| 方向匹配 | output → input，或 inout ↔ inout。input → output 被拒绝 |
+| 禁止多驱动 | 一个 input 端口只能被一根线驱动 |
+| 禁止自连接 | 模块不能连接自身 |
+| 禁止重复连线 | 同一对端口不能连两次 |
+
+**连线步骤：**
+
+1. 将鼠标悬停在输出端口（右侧绿点）上
+2. 按住鼠标左键拖出连线
+3. 将连线拖到目标模块的输入端口（左侧红点）上
+4. 释放鼠标，连线生成
+
+连线标签自动命名为 `{模块名}_{端口名}` 格式。
+
+**连线外观：**
+
+| 状态 | 样式 |
+|------|------|
+| 默认 | 灰色 smoothstep 曲线 |
+| 选中 | 高亮强调色 |
+| 探测信号 | 橙色 |
+
+### 6.7 属性面板
+
+点击画布上的模块或连线，右侧属性面板显示详情。
+
+**模块属性：**
+
+| 字段 | 说明 |
+|------|------|
+| 例化名 | 模块在顶层中的实例名称 |
+| 类型 | base / wrapped / board_ip |
+| 模块名 | 原始 Verilog 模块名 |
+| 坐标 | 画布位置 (x, y) |
+| 端口列表 | 所有端口：名称、方向、位宽 |
+| 配置 | 模块参数（如波特率） |
+| 删除模块 | 红色按钮，删除节点及相关连线 |
+
+**连线属性：**
+
+| 字段 | 说明 |
+|------|------|
+| 信号名 | wire 名称 |
+| 源模块 | 驱动模块 ID |
+| 目标模块 | 被驱动模块 ID |
+| 源端口 | 输出端口名 |
+| 目标端口 | 输入端口名 |
+| 删除连线 | 红色按钮 |
+
+### 6.8 代码预览与底部面板
+
+底部面板包含 3 个标签页：
+
+**代码标签（Code）：**
+
+- 集成 Monaco Editor，支持 Verilog 语法高亮
+- 点击工具栏 **Top** 或 **TB** 按钮后，后端生成的代码自动显示在此
+- 支持直接编辑、复制（Ctrl+C）、缩进调整
+- 代码字体：Cascadia Code / Fira Code / JetBrains Mono（连字支持）
+- 明暗主题跟随全局设置自动切换
+
+**日志标签（Log）：**
+
+- 显示仿真运行状态（运行中/完成）
+- 输出编译/仿真 stdout 和 stderr
+- 警告和错误消息以颜色区分（黄色/红色）
+
+**波形标签（Waveform）：**
+
+- 加载 VCD 文件后显示信号列表
+- 显示：信号名、位宽、变化次数
+- 运行时：总时间、时标、信号总数
+
+### 6.9 主题切换
+
+**两种主题（v0.2.0 全新设计）：**
+
+| 属性 | 暗色 (Dark) | 亮色 (Light) |
+|------|------------|------------|
+| 主背景 | GitHub Dark (#0d1117) | 纯白 (#ffffff) |
+| 次背景 | (#161b22) | (#f6f8fa) |
+| 画布 | 深蓝黑 (#0f1729) | 浅灰 (#f0f2f5) |
+| 强调色 | 蓝 (#58a6ff) | 蓝 (#0969da) |
+| 节点-基础 | 蓝 (#58a6ff) | 蓝 (#0969da) |
+| 节点-封装 | 紫 (#bc8cff) | 紫 (#8250df) |
+| 节点-板载IP | 橙 (#f0883e) | 橙 (#d84b00) |
+| 端口-输入 | 绿 (#3fb950) | 绿 (#1a7f37) |
+| 端口-输出 | 红 (#f85149) | 红 (#cf222e) |
+| 端口-双向 | 黄 (#d29922) | 黄 (#9a6700) |
+
+**设计风格：**
+- 整体采用 GitHub 风格配色，专业 IDE 外观
+- 暗色主题默认启用（适合 FPGA 开发环境）
+- 面板和节点带圆角（8-12px）、柔和阴影
+- 按钮有 hover/active 过渡动画，`active:scale-95` 点击反馈
+- 强调按钮带发光阴影 (`shadow-glow`)
+- 滚动条深色细条 (6px)，hover 时变亮
+
+**切换方式：**
+
+1. 点击状态栏右侧的 **☀ 亮色** / **🌙 暗色** 按钮
+2. 主题状态持久化在 localStorage (`fpga-theme`) 中
+3. 页面刷新后保留用户选择
+4. Monaco Editor 自动跟随全局主题（vs-dark / vs）
+
+### 6.10 键盘快捷键
+
+| 快捷键 | 功能 |
+|--------|------|
+| `Ctrl+N` | 新建项目 |
+| `Ctrl+O` | 打开项目 |
+| `Ctrl+S` | 保存 |
+| `Ctrl+Shift+S` | 另存为 |
+| `Ctrl+Z` | 撤销 |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | 重做 |
+| `Ctrl+A` | 全选 |
+| `Ctrl+B` | 切换左侧面板 |
+| `Ctrl+J` | 切换底部面板 |
+| `Ctrl+Shift+P` | 切换右侧面板 |
+| `Ctrl+=` | 放大画布 |
+| `Ctrl+-` | 缩小画布 |
+| `Ctrl+0` | 适应画布 |
+| `Delete` / `Backspace` | 删除选中 |
+| `F5` | 生成 Top 模块 |
+| `F6` | 生成 Testbench |
+| `F7` | 编译 |
+| `F8` | 仿真 |
+| `Shift + 拖动` | 框选多个模块 |
 
 ---
 
-### 任务 1.2：画布渲染、缩放平移、节点拖拽
+## 7. 完整工作流程
 
-**实现路径**
-1. 基于 ReactFlow 搭建画布，自定义 Node 组件。
-2. 实现画布操作：鼠标滚轮缩放（0.1x–3x）、右键拖拽平移、键盘快捷键（Space+拖拽）。
-3. 节点拖拽移动，连线随节点位置实时更新。
-4. 添加 minimap 小地图与栅格背景。
-5. 性能预留：节点数 > 200 时启用 `onlyRenderVisibleElements`。
+### 示例：构建一个计数器 + 门控的数字电路
 
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **@xyflow/react (ReactFlow v12)** | 节点画布核心：节点/边管理、缩放、拖拽 |
-| **@xyflow/react 内置 Minimap** | 小地图导航 |
-| **@xyflow/react Background** | 栅格/点阵背景 |
+**步骤 1：启动服务**
 
----
+```powershell
+# 终端 1：启动后端
+cd D:\claude\prj\backend
+& "D:\claude\prj\backend\venv\Scripts\python.exe" -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
-### 任务 1.3：节点编辑器
+# 终端 2：启动前端
+cd D:\claude\prj\frontend
+npm run dev
+```
 
-#### 任务 1.3.1：节点数据模型
+**步骤 2：添加模块到画布**
 
-**实现路径**
-1. 定义 TypeScript 接口：`NodeData { id, type, label, ports: {input: Port[], output: Port[]}, position, config }`。
-2. `Port` 类型含：`name, direction, width, signed, arraySize` 等信号属性。
-3. 使用 Zustand 管理全局节点/边状态，提供 `addNode / removeNode / updateNode / addEdge / removeEdge` action。
-4. 节点类型枚举：`BaseModule / WrappedModule / BoardIP / TopModule / TestbenchStim`。
-5. 定义共享类型包 `shared-types/` 供前后端共用（JSON Schema 校验）。
+1. 浏览器打开 `http://localhost:5173`
+2. 左侧面板 "模块库" 标签
+3. 在 "时序逻辑" 分组中，点击 **counter_n** → 模块出现在画布
+4. 在 "基本门电路" 分组中，点击 **and_gate** → 模块出现在画布
+5. 在 "IO 接口" 分组中，点击 **gpio_output** → 模块出现在画布
 
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **Zustand** | 轻量状态管理，比 Redux 简洁 |
-| **Zod** | 运行时类型校验 + TypeScript 类型推导 |
-| **JSON Schema** | 工程文件格式校验 |
+**步骤 3：排列模块**
 
-#### 任务 1.3.2：端口创建与连线
+- 拖动三个模块到合适位置（counter 左侧，and_gate 中间，gpio_output 右侧）
 
-**实现路径**
-1. 在自定义 ReactFlow Node 组件中，左右两侧渲染端口圆点（Handle 组件）。
-2. 输入端口在左侧（target Handle），输出端口在右侧（source Handle）。
-3. 连线规则校验：仅 output→input、同类型端口可连、禁止环路（拓扑排序检测）。
-4. 连线时高亮兼容端口（绿色=可连，红色=禁止）。
-5. 右键端口弹出菜单：添加/删除端口、编辑端口属性（位宽、有无符号）。
+**步骤 4：连接端口**
 
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **@xyflow/react Handle** | 端口连接点渲染 |
-| **@xyflow/react useConnection** | 连线校验 hook |
-| **graphlib (或自研拓扑排序)** | 环路检测 |
+- 从 counter_n 的 `count`（右侧红点）拖一条线到 and_gate 的 `a`（左侧绿点）
+- 从 counter_n 的 `overflow` 拖一条线到 and_gate 的 `b`
+- 从 and_gate 的 `y` 拖一条线到 gpio_output 的 `data_out`
 
-#### 任务 1.3.3：信号线可编辑标注
+**步骤 5：生成代码**
 
-**实现路径**
-1. ReactFlow Edge 的 `label` 属性支持自定义 React 组件。
-2. 双击边上的标注区域进入编辑模式，渲染 `<input>`。
-3. 标注内容作为 `wireName` 存入边数据，代码生成时使用该名称声明 wire。
-4. 回车或失焦确认，Esc 取消。
+1. 点击工具栏 **Top** 按钮（或按 F5）
+2. 底部面板自动切换到 "代码" 标签，显示生成的 Verilog 代码
+3. Monaco Editor 中显示带语法高亮的顶层模块代码
 
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **@xyflow/react EdgeLabelRenderer** | 边上渲染自定义标签 |
-| **React controlled input** | 行内编辑 |
+**步骤 6：生成 Testbench**
+
+1. 点击工具栏 **TB** 按钮（或按 F6）
+2. 底部面板显示生成的 Testbench 代码（含时钟生成、复位序列、DUT 例化等）
+
+**步骤 7：保存工程**
+
+- 点击工具栏 💾 保存按钮，或按 Ctrl+S
+- 工程保存为 .fpga.json 文件
+
+**步骤 8：主题切换**
+
+- 点击状态栏右侧 **☀ 亮色** 按钮切换到暗色主题
+- 再次点击可切回亮色
 
 ---
 
-### 任务 1.4：自定义封装工程
+## 8. 测试指南
 
-**实现路径**
-1. 用户框选一组节点 → 右键 "封装为模块" → 弹出配置窗口。
-2. 配置窗口：命名新模块、勾选暴露的端口（内部向外透传的信号）。
-3. 确认后：内部节点/边折叠为一个 WrappedModule 节点，选中端口暴露为外部 Handle。
-4. 封装信息存入节点元数据（内部子图引用 ID），支持 "展开/折叠" 切换。
-5. 导出为可复用节点模板（存模板库 localStorage 或文件）。
+### 8.1 运行后端测试
 
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **@xyflow/react useNodesInitialized** | 监听选择/框选 |
-| **React Portal 或 Dialog** | 封装配置弹窗 |
-| **localStorage / IndexedDB** | 模板持久化 |
+```powershell
+cd D:\claude\prj\backend
 
----
+# 激活虚拟环境
+.\venv\Scripts\activate
 
-## 第二阶段：硬件描述与代码生成
+# 运行全部测试
+pytest
 
-### 任务 2.1：设计中间表示 (IR)
+# 运行指定测试文件
+pytest tests/test_api.py -v
 
-**实现路径**
-1. 定义 IR 结构（Python dataclass / Pydantic model）：
-   ```
-   IR {
-     modules: [{ name, type, ports[], config }]
-     connections: [{ src: {module, port}, dst: {module, port}, wireName }]
-     wrapped_modules: [{ name, internal_ir }]
-   }
-   ```
-2. 前端导出 IR-JSON → 后端 FastAPI 接收 → 解析为 Python 对象。
-3. IR 是前端图形与后端代码生成的唯一交换格式，保证前后端解耦。
-4. 版本化 IR（version 字段），便于后续兼容。
+# 运行指定测试用例
+pytest tests/test_api.py::test_generate_top -v
 
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **Pydantic v2** | Python 侧 IR 模型定义与校验 |
-| **dataclasses-json** | 备选（更轻量） |
+# 查看覆盖率（需安装 pytest-cov）
+pytest --cov=app --cov-report=term-missing
+```
 
----
+### 8.2 测试清单（23 个用例）
 
-### 任务 2.2：顶层拓扑生成器
+**test_api.py — API 端点测试：**
 
-#### 任务 2.2.1：生成 module 例化语句
+| # | 测试用例 | 验证内容 |
+|:---:|------|------|
+| 1 | `test_health` | 健康检查返回 200 + status=ok |
+| 2 | `test_generate_top` | 单模块 Top 生成，含 module/endmodule |
+| 3 | `test_generate_top_empty` | 空 IR 仍正确生成 shell |
+| 4 | `test_generate_top_multiple_modules` | 多模块实例化代码 |
+| 5 | `test_generate_top_with_connections` | 端口连线声明 |
+| 6 | `test_generate_top_wrapped_module` | 封装模块展平 |
+| 7 | `test_generate_testbench` | TB 含时钟、复位、DUT |
+| 8 | `test_generate_testbench_with_signals` | 监控信号列表 |
+| 9 | `test_parse_verilog_file` | 单文件解析模块 |
+| 10 | `test_parse_verilog_directory` | 目录批量解析 |
+| 11 | `test_parse_verilog_not_found` | 文件不存在 404 |
+| 12 | `test_parse_vcd` | VCD 解析信号+变化 |
+| 13 | `test_parse_vcd_not_found` | VCD 不存在 404 |
+| 14 | `test_save_project` | 保存 JSON，验证磁盘文件 |
+| 15 | `test_save_project_creates_dir` | 自动创建父目录 |
+| 16 | `test_load_project` | 加载已保存的工程 |
+| 17 | `test_load_project_not_found` | 加载不存在的文件 404 |
+| 18 | `test_load_project_invalid_json` | 损坏的 JSON 400 |
+| 19 | `test_health_response_format` | 响应格式完整性 |
+| 20 | `test_generate_top_module_name` | 顶层模块名正确 |
+| 21 | `test_parse_verilog_port_types` | 端口方向识别 |
+| 22 | `test_parse_vcd_signal_count` | 信号数量完整 |
+| 23 | `test_project_roundtrip` | 保存→加载往返数据一致 |
 
-**实现路径**
-1. 拓扑排序确定模块例化顺序（无依赖的在前）。
-2. 遍历 IR 中每个模块，生成 Verilog 例化模板：
-   ```verilog
-   module_name u_inst_name (
-       .port_a (wire_name),
-       .port_b (wire_name)
-   );
-   ```
-3. 实例名自动生成规范：`u_<模块名>_<序号>`。
-4. 支持用户自定义例化名（通过节点属性覆盖）。
+**test_ir.py — IR 模型测试：**
 
-#### 任务 2.2.2：自动生成 wire 声明与连接
+| # | 测试用例 | 验证内容 |
+|:---:|------|------|
+| 1 | `test_port_creation` | Port 默认值和必填字段 |
+| 2 | `test_module_creation` | Module 创建和端口关联 |
+| 3 | `test_connection_creation` | Connection 连线定义 |
+| 4 | `test_ir_creation` | IR 顶层结构 |
+| 5 | `test_project_file_creation` | 工程文件整体 |
+| 6 | `test_simulation_config_defaults` | 仿真配置默认值 |
+| 7 | `test_port_direction_enum` | 方向枚举 input/output/inout |
 
-**实现路径**
-1. 分析所有连线：两端端口位宽匹配检查，不匹配时给出 warning 并自动截断/补零。
-2. 为每条无标注连线自动生成 wire 名：`w_<src>_<dst>_<port>`。
-3. 有标注的连线使用用户指定名。
-4. 生成 `wire [WIDTH-1:0] name;` 声明集合。
-5. 模块端口位宽参数化（支持 parameter 传递）。
+### 8.3 前端 TypeScript 类型检查
 
-**推荐工具（2.2.1 & 2.2.2 共用）**
-| 工具 | 用途 |
-|------|------|
-| **Jinja2** | Verilog 代码模板渲染 |
-| **graphlib (Python)** | 拓扑排序 |
-| **自定义 CodeWriter 类** | 缩进管理、代码拼接 |
+```powershell
+cd D:\claude\prj\frontend
 
----
+# TypeScript 类型检查（无 emit）
+npx tsc --noEmit
 
-### 任务 2.3：板卡 IP 封装支持
+# 生产构建
+npx vite build
+```
 
-#### 任务 2.3.1：IP 配置界面
+### 8.4 手动探索性测试建议
 
-**实现路径**
-1. 前端实现 IP 配置面板（右侧抽屉），用户选择板卡类型。
-2. 板卡信息从 JSON 配置文件加载：包含时钟引脚、GPIO 映射、外设 IP 列表。
-3. 用户从 IP 库拖入所需 IP 模块到画布，双击打开参数面板。
-4. 参数包括：输入时钟频率、复位极性、接口协议选择（SPI/I2C/UART）。
-
-#### 任务 2.3.2：样板工程与半自动代码生成
-
-**实现路径**
-1. 每种支持板卡预置一个 YAML/JSON 样板工程：`boards/xilinx_zynq7000/template.json`。
-2. 样板含：顶层端口模板、PLL 配置、常用外设 IP（GPIO/UART/I2C）。
-3. 用户配置后，Jinja2 渲染生成约束文件 (.xdc) 和例化代码。
-4. 半自动：自动生成框架 + 用户补充业务逻辑区域（标记为 `// USER CODE BEGIN`）。
-
-#### 任务 2.3.3：IDE 导出接口
-
-**实现路径**
-1. 定义导出适配器接口：`Exporter.export(ir, target_ide) -> {files}`。
-2. 实现 Vivado 适配器：生成 `.tcl` 工程创建脚本 + `.xdc` 约束 + Verilog 源文件列表。
-3. 预留 Quartus 适配器扩展点（同接口不同实现）。
-4. 导出为 ZIP 包，或直接写入用户指定目录。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **YAML / JSON config files** | 板卡定义与样板 |
-| **Jinja2** | 约束文件、TCL 脚本模板渲染 |
-| **Python zipfile** | 打包导出 |
-| **策略模式 (class Exporter)** | IDE 适配器可扩展架构 |
+| 场景 | 操作 | 预期结果 |
+|------|------|---------|
+| 模块放置 | 从库中拖放 5 个模块 | 全部出现在画布不同位置 |
+| 连线方向错误 | 尝试 input→input 连线 | 连线不会被创建 |
+| 多驱动 | 两个 output 连同一 input | 第二次连接被拒绝 |
+| 自连接 | output 连回自身 input | 连线不会被创建 |
+| 复制连线 | 同一对端口连两次 | 第二次连接被拒绝 |
+| 删除模块 | 删除有连线的模块 | 模块和关联连线均消失 |
+| 主题切换 | 切暗→亮→暗 | 界面颜色即时切换 |
+| 代码生成 | 放 2 模块 + 连线，点 Top | 代码面板显示 Verilog |
+| 面板切换 | Ctrl+B, Ctrl+J | 左右底部面板显示/隐藏 |
 
 ---
 
-### 任务 2.4：一键生成 Top 文件
+## 9. 常见问题
 
-**实现路径**
-1. 收集画布上所有顶级模块（非封装子模块）及其连线。
-2. 通过 IR 传给后端 `/api/generate/top` 端点。
-3. 后端：
-   a. 自动推断顶层端口（无连接的输入→顶层 input，无连接的输出→顶层 output）。
-   b. 生成 module 头（端口声明、parameter）。
-   c. 生成内部 wire 声明 + 所有子模块例化。
-4. 返回生成的 Verilog/VHDL 文本，前端在代码预览窗口中展示并支持下载。
+### Q1：前端页面打开后空白？
 
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **FastAPI** | REST 端点 `/api/generate/top` |
-| **Jinja2** | Top 模板渲染 |
-| **Monaco Editor (@monaco-editor/react)** | 前端代码预览（语法高亮） |
+**A**：检查以下几点：
+1. `npm install` 是否成功完成
+2. 浏览器控制台（F12）是否有报错
+3. Vite 代理是否正确指向后端 `http://localhost:8000`
+4. 确认 `vite.config.ts` 中 proxy 配置存在
 
----
+### Q2：点击 Top/TB 按钮后没反应？
 
-## 第三阶段：仿真联动与信号捕捉
+**A**：检查后端是否在 8000 端口运行：
+```powershell
+Invoke-WebRequest -Uri "http://localhost:8000/api/health" -UseBasicParsing
+```
+如果连接被拒，启动后端服务。
 
-### 任务 3.1：信号线选择与抓取界面
+### Q3：模块拖放没反应？
 
-**实现路径**
-1. 在节点连线上添加 "探针" 按钮（点击或右键菜单 "标记仿真"）。
-2. 标记信号高亮显示（如变为黄色虚线），加入仿真信号列表面板。
-3. 面板内展示：信号名、所属模块、位宽、预计波形初值。
-4. 支持从面板移除 / 清空信号。
+**A**：v0.2.0 已修复拖放定位问题：
+1. 左侧面板处于 "模块库" 标签（非 "信号" 或 "文件"）
+2. 拖放现在使用 `screenToFlowPosition()` 精确转换坐标，模块出现在鼠标释放位置
+3. 也可直接点击模块名添加（自动阶梯式排列，每次偏移 80px，不会堆叠）
+4. 确认浏览器支持 HTML5 Drag and Drop API
+5. 模块放置后可**自由拖动**（`nodesDraggable={true}`），拖动时带吸附网格（可关闭）
 
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **@xyflow/react 自定义 Edge** | 探针式信号标记 |
-| **Zustand 仿真信号 store** | 状态管理 |
+### Q4：连线拖出后无法连接到目标端口？
 
----
+**A**：连线有方向验证：
+- 输出端口（右侧红点）只能连到输入端口（左侧绿点）
+- 输入端口不能被多个输出驱动
+- 检查端口颜色：绿=输入、红=输出、黄=双向
 
-### 任务 3.2：构建 API 服务层调用 ModelSim
+### Q5：如何切换到暗色模式？
 
-**实现路径**
-1. Python 后端封装 `Simulator` 抽象类，定义 `compile / run / get_waves` 接口。
-2. `ModelSimSimulator` 实现类：
-   a. 调用 `vsim` 命令行启动 ModelSim（TCL 批处理模式）。
-   b. 生成 TCL 脚本：编译源文件、启动仿真、运行指定时间、导出波形。
-   c. 使用 `subprocess` 异步执行，实时回传日志进度（WebSocket）。
-3. 超时与异常处理：仿真超时自动 kill，错误信息回传前端。
-4. 预留 QuestaSim / Icarus Verilog / Verilator 实现扩展点。
+**A**：三种方式：
+1. 点击状态栏最右侧的 "☀ 亮色" 按钮
+2. 浏览器开发者工具中执行：`localStorage.setItem('fpga-theme', 'dark')`
+3. 主题偏好会自动保存，下次打开页面自动恢复
 
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **Python subprocess + asyncio** | 异步进程管理 |
-| **FastAPI WebSocket** | 实时日志推送 |
-| **策略/工厂模式** | 仿真器多后端架构 |
+### Q6：后端显示 "Error loading ASGI app. Could not import module"？
 
----
+**A**：检查启动命令是否从正确的目录执行：
+```powershell
+# 正确：在 backend 目录下
+cd D:\claude\prj\backend
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+不要写成 `app.main:app`，因为 `main.py` 在 `backend/` 根目录。
 
-### 任务 3.3：自动生成 Testbench 框架
+### Q7：仿真功能不可用？
 
-**实现路径**
-1. 根据用户标记的仿真信号，构建 Testbench 上下文。
-2. Jinja2 模板生成：
-   a. `include "top_module.v"` 宏。
-   b. 时钟生成逻辑（周期可配置）。
-   c. 复位序列（前 N 个周期复位）。
-   d. 激励占位标记 `// STIMULUS: signal_name`。
-3. 自动例化 DUT（顶层模块）。
-4. 生成 `initial begin ... $finish; end` 框架。
-5. 前端可预览和手动编辑，再提交执行。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **Jinja2** | Testbench 模板 |
-| **Monaco Editor** | 前端 TB 编辑/预览 |
+**A**：编译和仿真端点（`/api/simulate/compile`、`/api/simulate/run`）需要安装 ModelSim 或 Questa 仿真器。如果未安装，这些端点会返回 500 错误。代码生成功能不依赖仿真器。
 
 ---
 
-### 任务 3.4：解析仿真波形数据并可视化
+## 10. 附录
 
-**实现路径**
-1. 仿真执行后导出 VCD 或 WLF→VCD 文件。
-2. 后端用 `vcdvcd` 或自研解析器解析 VCD 为 JSON：
-   ```
-   { signals: [{ name, values: [{time, value}] }] }
-   ```
-3. 前端接收 JSON，用自研 Canvas 波形组件或 WaveDrom 渲染。
-4. 波形组件功能：多信号展开、缩放时间轴、信号分组、颜色区分。
+### A. IR JSON 完整结构
 
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **vcdvcd (Python)** | VCD 文件解析库 |
-| **自研 Canvas 组件 (React + OffscreenCanvas)** | 波形渲染（大数据量时 Web Worker 预处理） |
-| **WaveDrom** | 备选：简单场景波形渲染 |
+```json
+{
+  "version": "0.1.0",
+  "modules": [
+    {
+      "id": "m1",
+      "name": "counter",
+      "instance_name": "my_counter",
+      "type": "base",
+      "ports": [
+        {
+          "id": "p1",
+          "name": "clk",
+          "direction": "input",
+          "width": 1,
+          "signed": false,
+          "array_size": null,
+          "description": "系统时钟"
+        }
+      ],
+      "position": [120.0, 250.0],
+      "config": {}
+    }
+  ],
+  "connections": [
+    {
+      "id": "c1",
+      "src_module": "m1",
+      "src_port": "count",
+      "dst_module": "m2",
+      "dst_port": "a",
+      "wire_name": "counter_count"
+    }
+  ],
+  "wrapped_modules": [],
+  "top_module_name": "my_top_design"
+}
+```
 
----
+### B. 工程文件 (.fpga.json) 结构
 
-### 任务 3.5：可视化调试（光标与时序测量）
+```json
+{
+  "version": "0.1.0",
+  "name": "my_project",
+  "ir": { /* 上述 IR 结构 */ },
+  "board": {
+    "board_name": "xilinx_zynq7000",
+    "fpga_part": "xc7z020clg400-1",
+    "clock_pins": { "clk": "W5" },
+    "gpio_map": { "led[0]": "R14" },
+    "constraints": ""
+  },
+  "simulation": {
+    "simulator": "iverilog",
+    "clock_period_ns": 10.0,
+    "reset_cycles": 5,
+    "sim_time_us": 100.0,
+    "monitored_signals": ["clk", "rst_n", "count"]
+  },
+  "canvas_state": {
+    "viewport": { "x": 0, "y": 0, "zoom": 1.0 }
+  }
+}
+```
 
-**实现路径**
-1. 波形图上叠加可拖拽的垂直光标线（Marker）。
-2. 用户点击添加光标 A 和 B，自动计算 ΔT 并显示。
-3. 支持键盘微调光标（← → 移动 1 个时间单位）。
-4. 信号值跟随光标位置实时显示（tooltip）。
-5. 光标状态通过 Zustand 管理，支持保存/恢复。
+### C. 前端状态管理架构
 
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **自研 Canvas 交互层** | 光标拖拽与渲染 |
-| **Zustand** | 光标状态管理 |
-| **快捷键 bindings (react-hotkeys-hook)** | 键盘微调 |
+```
+┌─────────────────────────────────────────────────┐
+│                    Zustand Stores                │
+├──────────────┬──────────────┬───────────────────┤
+│  uiStore     │  canvasStore  │  projectStore     │
+│  主题         │  节点/边      │  工程名/路径       │
+│  面板显示     │  选中状态     │  IR/板卡/仿真     │
+│  状态消息     │  连线验证     │  脏标记           │
+│  生成代码     │  IR 构建     │  保存/加载        │
+├──────────────┼──────────────┼───────────────────┤
+│ moduleLibraryStore │ simulationStore │           │
+│  19 个模板         │  仿真配置      │           │
+│  搜索/过滤         │  编译/运行     │           │
+│  分类管理          │  波形数据      │           │
+│                    │  探测信号      │           │
+└────────────────────┴────────────────┴───────────┘
+```
 
----
+### D. 浏览器兼容性
 
-## 第四阶段：工程导入与模块提取
+| 浏览器 | 版本 | 状态 |
+|--------|------|:---:|
+| Google Chrome | 90+ | ✅ 完全支持 |
+| Microsoft Edge | 90+ | ✅ 完全支持 |
+| Mozilla Firefox | 90+ | ✅ 完全支持 |
+| Safari | 15+ | ⚠️ 未充分测试 |
 
-### 任务 4.1：Verilog/VHDL 解析器
+### E. 技术栈版本
 
-**实现路径**
-1. **Verilog**：集成 `sv-parser` (Rust/Node binding) 或 `pyverilog` (Python) 做 AST 解析。
-2. 提取信息：模块名、端口列表（方向+位宽）、内部例化语句（子模块名+实例名+连接）。
-3. **VHDL**：集成 `pyVHDLParser` 或 `GHDL` 生成 AST。
-4. 构建统一中间格式 `ParsedModule`（与 IR module 结构对齐）。
-5. 容错处理：解析失败时标记文件+行号，给出友好提示。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **pyverilog / sv-parser** | Verilog/SystemVerilog 解析 |
-| **pyVHDLParser / GHDL** | VHDL 解析 |
-| **自定义 AST→IR 转换器** | 统一中间格式 |
-
----
-
-### 任务 4.2：导入工程自动创建模块节点
-
-**实现路径**
-1. 用户选择工程目录或文件列表。
-2. 解析所有 `.v/.sv/.vhd` 文件，提取模块定义。
-3. 为每个模块创建节点，初始布局由层次关系 + 简单拓扑分层算法决定。
-4. 自动连线：根据例化语句中的端口连接关系生成边。
-5. 保留层次分组信息（折叠子模块到父模块附近）。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **dagre (或 dagrejs)** | 自动布局算法 |
-| **自定义布局引擎** | 层次感知节点放置 |
-
----
-
-### 任务 4.3：子模块拖入封装
-
-**实现路径**
-1. 已导入模块节点右键 → "拖入封装为子模块"。
-2. 弹出封装编辑器：选择新封装名、暴露端口。
-3. 与任务 1.4 共用的封装引擎生成 WrappedModule。
-4. 封装节点可拖入其他画布复用。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **与 1.4 共用封装引擎** | 复用逻辑 |
-| **React DnD (或 @xyflow/react 原生拖放)** | 跨画布拖拽 |
-
----
-
-## 第五阶段：界面优化与自动化
-
-### 任务 5.1：一键整理画布（自动布局）
-
-**实现路径**
-1. 实现分层布局算法（Sugiyama）：
-   a. 拓扑分层（每层无依赖的节点在同一行）。
-   b. 层内排序减少交叉。
-   c. 节点坐标分配（水平间距 250px，垂直间距 150px）。
-2. 或使用力导向布局（Dagre / ELK.js）处理复杂拓扑。
-3. 前端展示布局动画（平滑移动到新位置）。
-4. 支持 "仅整理选中节点" 或 "整理全部"。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **dagre + dagrejs** | 分层/力导向布局算法 |
-| **ELK.js (Eclipse Layout Kernel)** | 备选：更强布局引擎 |
-| **CSS transition** | 节点移动动画 |
-
----
-
-### 任务 5.2：端口智能对齐
-
-**实现路径**
-1. 在自动布局后执行端口对齐优化：
-   a. 检测垂直相邻节点间的直接连线，微调 Y 坐标对齐端口。
-   b. 同层节点端口高度一致化处理。
-2. 实现为布局引擎的后处理步骤，独立可调用。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **自研对齐算法** | 基于边连接信息重新计算 Y 偏移 |
-| **dagre 边约束** | 利用 dagre 的 rank 调整减少交叉 |
+| 组件 | 版本 | 许可证 |
+|------|------|------|
+| React | 19.x | MIT |
+| @xyflow/react | 12.x | MIT |
+| Zustand | 5.x | MIT |
+| Monaco Editor | 0.x | MIT |
+| lucide-react | 1.x | ISC |
+| motion (framer) | 12.x | MIT |
+| Tailwind CSS | 4.x | MIT |
+| Vite | 8.x | MIT |
+| FastAPI | 0.115+ | MIT |
+| Pydantic | 2.x | MIT |
+| Jinja2 | 3.1+ | BSD |
+| Python | 3.11+ | PSF |
 
 ---
 
-### 任务 5.3：主题定制、网格吸附、批注
-
-**实现路径**
-1. **主题定制**：CSS 变量体系 + 主题配置对象，支持暗/亮模式、自定义色板。
-2. **网格吸附**：节点拖拽时对齐到最近网格点（gridSize 可配置 10/20/50 px），松开时自动吸附。
-3. **批注功能**：独立于模块节点的 "注释框" 节点，可调整大小、书写多行文字、设置背景色。连线也可添加浮动注释。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **CSS Variables + Tailwind CSS** | 主题系统 |
-| **@xyflow/react snapToGrid** | 网格吸附 |
-| **ReactFlow Node 自定义组件** | 注释节点渲染 |
-
----
-
-### 任务 5.4：保存/加载工程文件
-
-**实现路径**
-1. 定义工程文件格式 `.fpga.json`（自描述格式，含版本号、IR、画布状态、仿真配置）。
-2. 保存：导出全量节点/边状态 + 封装子图 + 板卡配置 + 仿真信号列表。
-3. 加载：解析 JSON → 校验 Schema → 重建画布状态 → 恢复封装展开状态。
-4. 支持最近打开文件列表（Electron `app.getRecentDocuments`）。
-5. 自动保存（debounce 2s）+ 脏状态标记（标题栏 `•`）。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **Zod Schema** | 文件格式校验 |
-| **Electron dialog API** | 保存/打开文件对话框 |
-| **Electron app.addRecentDocument** | 最近文件 |
-| **Zustand persist middleware** | 自动保存到文件 |
-
----
-
-## 第六阶段：集成测试与文档
-
-### 任务 6.1：端到端测试
-
-**实现路径**
-1. 编写测试场景脚本：
-   a. 新建工程 → 拖入 3 个模块 → 连线 → 封装为子模块 → 生成 Top → 与预期 Verilog 比对。
-   b. 标记信号 → 生成 TB → 调用仿真（Mock ModelSim 或 Icarus）→ 验证波形输出。
-2. 前端用 Playwright 做 UI 自动化测试。
-3. 后端用 pytest 做 API 与代码生成逻辑测试。
-4. CI 中集成：GitHub Actions 自动运行测试套件。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **Playwright** | 前端 E2E 测试 (Electron 支持) |
-| **pytest + pytest-asyncio** | 后端测试 |
-| **Icarus Verilog (iverilog)** | CI 中免费仿真验证 |
-| **GitHub Actions** | CI/CD 流水线 |
-
----
-
-### 任务 6.2：不同板卡 IP 兼容性测试
-
-**实现路径**
-1. 为每种支持的板卡编写一份测试用例。
-2. 测试内容：IP 配置 → 代码生成 → 样板工程完整性校验。
-3. 差异测试：切换板卡后重新生成，确认约束文件和引脚映射变化正确。
-4. 用 snapshot 测试对比生成代码输出。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **pytest-snapshot** | 代码生成输出快照对比 |
-| **YAML 数据驱动测试** | 多板卡参数化测试 |
-
----
-
-### 任务 6.3：用户手册与开发者文档
-
-**实现路径**
-1. 用户手册：Markdown → VitePress 构建静态站点。
-2. 内容结构：快速入门 → 节点编辑器 → 封装 → 仿真 → 板卡配置 → 常见问题。
-3. 开发者文档：前后端 README、API 文档（FastAPI 自动生成 Swagger）、架构图。
-4. 内嵌 GIF/截屏（Electron 内录工具或 OBS）。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **VitePress** | 文档站点 |
-| **FastAPI Swagger UI** | API 文档自动生成 |
-| **Draw.io / Excalidraw** | 架构图 |
-
----
-
-### 任务 6.4：性能优化与 Bug 修复
-
-**实现路径**
-1. **画布虚拟化**：ReactFlow `onlyRenderVisibleElements` + 视口外节点不渲染 DOM。
-2. **大数据波形**：Canvas 渲染 + Web Worker 解码 VCD，主线程仅画可视时间窗口。
-3. **大型工程**：增量布局（仅移动变化的节点），防抖批量更新。
-4. **内存**：及时释放未使用的封装子图数据。
-5. Bug 跟踪用 GitHub Issues，回归测试套件覆盖每个修复合入。
-
-**推荐工具**
-| 工具 | 用途 |
-|------|------|
-| **React DevTools Profiler** | 渲染性能分析 |
-| **OffscreenCanvas + Web Worker** | 波形大数据处理 |
-| **Lighthouse / Electron DevTools** | 整体性能审计 |
-| **pytest regression suite** | 回归测试 |
-
----
-
-## 附录：总体技术栈一览
-
-| 层面 | 核心技术 | 辅助/备选 |
-|------|----------|-----------|
-| 桌面框架 | Electron 28+ | Tauri (未来迁移备选) |
-| 前端 UI | React 18 + TypeScript | — |
-| 节点画布 | @xyflow/react (ReactFlow v12) | 自研 Canvas (如有极端性能需求) |
-| 状态管理 | Zustand | Jotai (原子化备选) |
-| 构建 | electron-vite | Webpack (下降趋势) |
-| 后端 | Python 3.11 + FastAPI | Node.js + Express (统一栈备选) |
-| 模板引擎 | Jinja2 | — |
-| 仿真接口 | ModelSim TCL + subprocess | Icarus Verilog (免费 CI 备选) |
-| 硬件解析 | pyverilog + pyVHDLParser | sv-parser + GHDL |
-| 波形解析 | vcdvcd | 自研 VCD parser |
-| 波形渲染 | 自研 Canvas 组件 | WaveDrom |
-| 自动布局 | dagre + dagrejs | ELK.js |
-| 代码编辑 | Monaco Editor | CodeMirror 6 |
-| 测试 | Playwright + pytest | Vitest (单元测试) |
-| 文档 | VitePress | Docusaurus |
-| CI/CD | GitHub Actions | — |
-| 打包分发 | electron-builder | — |
+> **文档版本**：0.3.0 | **生成日期**：2026-05-02 | **作者**：FPGA Visual Tool Team
+> 
+> ### 版本历史
+> 
+> | 版本 | 日期 | 变更 |
+> |------|------|------|
+> | 0.3.0 | 2026-05-02 | **前端完全重写**：采用专业 FPGA IDE 参考设计 UI。新布局 Header + ModuleLibrary(w-64) + Canvas + PropertiesPanel(280px可折叠) + BottomPanel(200px可折叠) + StatusBar(h-6)。lucide-react 图标 + motion 动画。**修复 @xyflow/react v12 兼容性**：type/value 导入分离。**修复前后端字段命名对齐**：camelCase → snake_case（src_module, wire_name, instance_name）匹配 Pydantic 模型。**修复保存流程**：SAVE 按钮调用 buildIR 确保 IR 不为空。TS 6.0 兼容 + dagre 类型声明。构建通过 tsc + vite build。v0.3.0 发布至 GitHub |
+> | 0.2.0 | 2026-05-02 | 修复拖放定位（screenToFlowPosition）、修复模块拖动、全新 UI 设计（GitHub 风格配色、渐变节点头部、发光端口手柄、圆角卡片、分类 chip 筛选）、工具栏按钮样式分级、状态栏状态指示灯、Monaco Editor 暗/亮自动切换 |
+> | 0.1.0 | 2026-05-02 | 初始版本：后端 9 API + 23 测试，前端 18 文件 + 19 模块库 + ReactFlow 画布 + Monaco 编辑器 |
