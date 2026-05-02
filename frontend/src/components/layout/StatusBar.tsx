@@ -2,7 +2,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 
-export default function StatusBar() {
+export function StatusBar() {
   const statusMessage = useUIStore((s) => s.statusMessage);
   const theme = useUIStore((s) => s.theme);
   const toggleTheme = useUIStore((s) => s.toggleTheme);
@@ -10,60 +10,42 @@ export default function StatusBar() {
   const toggleGridSnap = useUIStore((s) => s.toggleGridSnap);
   const nodeCount = useCanvasStore((s) => s.nodes.length);
   const edgeCount = useCanvasStore((s) => s.edges.length);
+  const projectName = useProjectStore((s) => s.name);
   const isDirty = useProjectStore((s) => s.isDirty);
 
   return (
-    <div className="flex items-center h-7 px-3 bg-[var(--statusbar-bg)] border-t border-[var(--border-primary)] text-[11px] text-[var(--text-secondary)] select-none gap-4">
-      {/* Left: status */}
-      <span className="flex-1 truncate flex items-center gap-1.5">
-        <span className="w-1.5 h-1.5 rounded-full" style={{
-          background: statusMessage.includes('失败') ? 'var(--error)' :
-            statusMessage.includes('成功') || statusMessage.includes('✓') ? 'var(--success)' :
-            'var(--text-muted)'
-        }} />
-        {statusMessage}
-      </span>
-
-      {/* Center: stats */}
-      <div className="flex items-center gap-3 text-[var(--text-muted)]">
-        <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded" style={{ background: 'var(--node-base)' }} />
-          模块 <strong className="text-[var(--text-secondary)]">{nodeCount}</strong>
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="text-[var(--text-muted)]">↔</span>
-          连线 <strong className="text-[var(--text-secondary)]">{edgeCount}</strong>
-        </span>
-        {isDirty && (
-          <span className="text-[var(--warning)] flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-[var(--warning)]" />
-            已修改
-          </span>
-        )}
+    <footer
+      className="h-6 flex items-center justify-between px-3 text-[10px] z-50 flex-shrink-0"
+      style={{ background: 'var(--canvas-bg)', borderTop: '1px solid var(--panel-border)', color: 'var(--text-secondary)' }}
+    >
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-1 text-green-600">
+          <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+          <span>{statusMessage}</span>
+        </div>
+        <span>IR v1.0</span>
       </div>
-
-      {/* Right: toggles */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-4">
+        <span>Nodes: {nodeCount} | Edges: {edgeCount}</span>
+        {isDirty && <span className="text-amber-500">● Modified</span>}
+        <span>Project: {projectName}</span>
         <button
-          className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-all duration-150 ${
-            gridSnap
-              ? 'bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)]/30'
-              : 'border border-[var(--border-primary)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+          className={`px-1.5 rounded text-[9px] font-medium transition-colors ${
+            gridSnap ? 'bg-primary text-white' : 'text-gray-500 hover:text-gray-700'
           }`}
           onClick={toggleGridSnap}
-          title="切换网格吸附"
+          title="Toggle grid snap"
         >
-          ⊞ 吸附{gridSnap ? ' ON' : ' OFF'}
+          SNAP
         </button>
-
         <button
-          className="px-2 py-0.5 rounded-md text-[10px] font-medium border border-[var(--border-primary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-all duration-150"
+          className="px-1.5 rounded text-[9px] font-medium transition-colors hover:text-primary"
           onClick={toggleTheme}
-          title="切换主题"
+          title="Toggle theme"
         >
-          {theme === 'dark' ? '☀ 亮色' : '🌙 暗色'}
+          {theme === 'dark' ? 'LIGHT' : 'DARK'}
         </button>
       </div>
-    </div>
+    </footer>
   );
 }

@@ -1,62 +1,77 @@
-// === IR Data Types (aligned with backend Pydantic models) ===
-
+/* ===== Port ===== */
 export type PortDirection = 'input' | 'output' | 'inout';
 
-export interface Port {
-  id: string;
+export interface PortData {
+  id?: string;
   name: string;
   direction: PortDirection;
   width: number;
-  signed: boolean;
-  array_size?: number | null;
-  description?: string;
+  signed?: boolean;
 }
 
+/* ===== Module ===== */
 export type ModuleType = 'base' | 'wrapped' | 'board_ip';
 
-export interface Module {
+export interface ModuleData {
   id: string;
   name: string;
-  instance_name?: string | null;
+  instance_name?: string;
   type: ModuleType;
-  ports: Port[];
-  position: [number, number];
+  ports: PortData[];
+  position?: [number, number];
   config: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
-export interface Connection {
+/* ===== Connection ===== */
+export interface ConnectionData {
   id: string;
   src_module: string;
   src_port: string;
   dst_module: string;
   dst_port: string;
-  wire_name?: string | null;
+  wire_name?: string;
 }
 
-export interface WrappedModule {
+/* ===== Wrapped Module ===== */
+export interface WrappedModuleData {
   name: string;
-  exposed_ports: Port[];
-  internal_modules: Module[];
-  internal_connections: Connection[];
-  internal_wrapped: WrappedModule[];
+  internal_modules: ModuleData[];
+  internal_connections: ConnectionData[];
+  exposed_ports: string[];
 }
 
+/* ===== IR ===== */
 export interface IR {
   version: string;
-  modules: Module[];
-  connections: Connection[];
-  wrapped_modules: WrappedModule[];
+  modules: ModuleData[];
+  connections: ConnectionData[];
+  wrapped_modules: WrappedModuleData[];
   top_module_name: string;
 }
 
-export interface BoardConfig {
-  board_name: string;
-  fpga_part?: string;
-  clock_pins: Record<string, string>;
-  gpio_map: Record<string, string>;
-  constraints?: string;
+/* ===== Project ===== */
+export interface ProjectFile {
+  version: string;
+  name: string;
+  ir: IR;
+  board?: BoardConfig;
+  simulation?: SimulationConfig;
+  canvas_state: {
+    viewport: { x: number; y: number; zoom: number };
+  };
 }
 
+/* ===== Board ===== */
+export interface BoardConfig {
+  board_name: string;
+  fpga_part: string;
+  clock_pins: Record<string, string>;
+  gpio_map: Record<string, string>;
+  constraints: string;
+}
+
+/* ===== Simulation ===== */
 export interface SimulationConfig {
   simulator: string;
   clock_period_ns: number;
@@ -65,65 +80,43 @@ export interface SimulationConfig {
   monitored_signals: string[];
 }
 
-export interface ProjectFile {
-  version: string;
-  name: string;
-  ir: IR;
-  board?: BoardConfig | null;
-  simulation?: SimulationConfig | null;
-  canvas_state: Record<string, unknown>;
+export interface SimulationResult {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  errors: string[];
+  warnings: string[];
+  vcd_path?: string;
 }
 
-// === ReactFlow Node/Edge Data ===
-
-export interface ModuleNodeData {
-  module: Module;
-}
-
-export interface ConnectionEdgeData {
-  connection: Connection;
-  wireName: string;
-}
-
-// === Module Template (for library) ===
-
+/* ===== Module Library ===== */
 export interface ModuleTemplate {
   name: string;
   type: ModuleType;
   category: string;
-  ports: Omit<Port, 'id'>[];
+  ports: PortData[];
   defaultConfig: Record<string, unknown>;
 }
 
-// === Simulation ===
-
-export interface ProbedSignal {
-  moduleId: string;
-  moduleName: string;
-  portName: string;
-  width: number;
-}
-
+/* ===== Waveform ===== */
 export interface SignalChange {
   time_ns: number;
   value: string;
 }
 
-export interface SignalTrace {
+export interface WaveformSignal {
   name: string;
   width: number;
-  signed: boolean;
   changes: SignalChange[];
 }
 
 export interface WaveformData {
-  signals: SignalTrace[];
   total_time_ns: number;
   timescale: string;
+  signals: WaveformSignal[];
 }
 
-// === UI ===
-
+/* ===== UI ===== */
 export type Theme = 'light' | 'dark';
 export type LeftPanelTab = 'library' | 'signals' | 'files';
 export type BottomPanelTab = 'code' | 'log' | 'waveform';

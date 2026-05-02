@@ -27,3 +27,8 @@ Thumbs.db
 
 # Test cache
 .pytest_cache/
+
+# Reference project (not part of this repo)
+-FPGA-UI-main/
+FPGAUImain.zip
+.fpga.json

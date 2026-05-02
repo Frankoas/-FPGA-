@@ -1,58 +1,36 @@
 import { create } from 'zustand';
-import {
-  addEdge,
-  applyNodeChanges,
-  applyEdgeChanges,
-  type OnNodesChange,
-  type OnEdgesChange,
-  type OnConnect,
-  type Connection as RFConnection,
-} from '@xyflow/react';
-import type { Module, Connection, IR, ModuleNodeData, ConnectionEdgeData, Port } from '@/types';
+import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react';
+import type { Node, Edge, OnNodesChange, OnEdgesChange, OnConnect, Connection } from '@xyflow/react';
+import type { ModuleData, ConnectionData, IR, PortData } from '@/types';
+
+export interface ModuleNodeData extends Record<string, unknown> {
+  module: ModuleData;
+}
 
 interface CanvasState {
-  nodes: Array<{ id: string; type: string; position: { x: number; y: number }; data: ModuleNodeData }>;
-  edges: Array<{ id: string; source: string; target: string; sourceHandle: string; targetHandle: string; data: ConnectionEdgeData }>;
+  nodes: Node<ModuleNodeData>[];
+  edges: Edge[];
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
 
-  onNodesChange: OnNodesChange;
+  setNodes: (nodes: Node<ModuleNodeData>[]) => void;
+  setEdges: (edges: Edge[]) => void;
+
+  onNodesChange: OnNodesChange<Node<ModuleNodeData>>;
   onEdgesChange: OnEdgesChange;
   onConnect: OnConnect;
 
-  addModule: (module: Module, position?: { x: number; y: number }) => void;
-  removeModule: (id: string) => void;
-  updateModulePosition: (id: string, position: { x: number; y: number }) => void;
-  updateModuleConfig: (id: string, config: Record<string, unknown>) => void;
-
-  removeConnection: (id: string) => void;
+  addNode: (node: Node<ModuleNodeData>) => void;
+  removeNode: (id: string) => void;
+  updateNodeData: (id: string, data: Partial<ModuleData>) => void;
 
   selectNode: (id: string | null) => void;
   selectEdge: (id: string | null) => void;
 
   buildIR: (topModuleName: string) => IR;
-
   loadCanvas: (ir: IR) => void;
   clearCanvas: () => void;
 }
-
-let nodeCounter = 0;
-function genNodeId(): string {
-  nodeCounter += 1;
-  return `node_${nodeCounter}`;
-}
-
-let edgeCounter = 0;
-function genEdgeId(): string {
-  edgeCounter += 1;
-  return `edge_${edgeCounter}`;
-}
-
-const NODE_TYPE_LAYOUT: Record<string, string> = {
-  base: 'moduleNode',
-  wrapped: 'moduleNode',
-  board_ip: 'moduleNode',
-};
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
   nodes: [],
@@ -60,35 +38,45 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   selectedNodeId: null,
   selectedEdgeId: null,
 
-  onNodesChange: (changes) => set({ nodes: applyNodeChanges(changes, get().nodes) }),
-  onEdgesChange: (changes) => set({ edges: applyEdgeChanges(changes, get().edges) }),
+  setNodes: (nodes) => set({ nodes }),
+  setEdges: (edges) => set({ edges }),
 
-  onConnect: (connection: RFConnection) => {
+  onNodesChange: ((changes: Parameters<OnNodesChange>[0]) => {
+    set({ nodes: applyNodeChanges(changes, get().nodes) as Node<ModuleNodeData>[] });
+  }) as OnNodesChange<Node<ModuleNodeData>>,
+
+  onEdgesChange: ((changes: Parameters<OnEdgesChange>[0]) => {
+    set({ edges: applyEdgeChanges(changes, get().edges) });
+  }) as OnEdgesChange,
+
+  onConnect: (connection: Connection) => {
     const { nodes, edges } = get();
     const srcNode = nodes.find((n) => n.id === connection.source);
     const dstNode = nodes.find((n) => n.id === connection.target);
     if (!srcNode || !dstNode) return;
 
-    const srcModule = srcNode.data.module;
-    const dstModule = dstNode.data.module;
-    const srcPort = srcModule.ports.find((p) => p.id === connection.sourceHandle);
-    const dstPort = dstModule.ports.find((p) => p.id === connection.targetHandle);
+    const srcPorts = srcNode.data.module.ports as PortData[];
+    const dstPorts = dstNode.data.module.ports as PortData[];
+    const srcPort = srcPorts.find((p) => (p.id || p.name) === connection.sourceHandle);
+    const dstPort = dstPorts.find((p) => (p.id || p.name) === connection.targetHandle);
     if (!srcPort || !dstPort) return;
 
-    // Allow output→input or inout↔inout only
+    // Direction validation
     if (srcPort.direction === 'input' && dstPort.direction !== 'output' && dstPort.direction !== 'inout') return;
     if (srcPort.direction === 'output' && dstPort.direction !== 'input' && dstPort.direction !== 'inout') return;
 
-    // Prevent multi-drive on input ports
-    const alreadyDriven = edges.some(
-      (e) => e.target === connection.target && e.targetHandle === connection.targetHandle
-    );
-    if (alreadyDriven && dstPort.direction === 'input') return;
+    // Prevent multi-drive
+    if (dstPort.direction === 'input') {
+      const alreadyDriven = edges.some(
+        (e) => e.target === connection.target && e.targetHandle === connection.targetHandle
+      );
+      if (alreadyDriven) return;
+    }
 
     // Prevent self-connection
     if (connection.source === connection.target) return;
 
-    // Prevent duplicate connections
+    // Prevent duplicate
     const exists = edges.some(
       (e) =>
         e.source === connection.source &&
@@ -98,42 +86,35 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     );
     if (exists) return;
 
-    const wireName = `${srcModule.instance_name || srcModule.name}_${srcPort.name}`;
-    const connId = genEdgeId();
-    const newEdge = {
-      id: connId,
-      source: connection.source,
-      target: connection.target,
-      sourceHandle: connection.sourceHandle!,
-      targetHandle: connection.targetHandle!,
-      type: 'smoothstep',
-      animated: false,
-      data: {
-        connection: {
-          id: connId,
-          src_module: srcModule.id,
-          src_port: srcPort.name,
-          dst_module: dstModule.id,
-          dst_port: dstPort.name,
-          wire_name: wireName,
+    const wire_name = `${srcNode.data.module.instance_name || srcNode.data.module.name}_${srcPort.name}`;
+    set({
+      edges: addEdge(
+        {
+          ...connection,
+          id: `edge_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          type: 'smoothstep',
+          animated: true,
+          style: { stroke: '#1a56db', strokeWidth: 2 },
+          data: {
+            wire_name,
+            connection: {
+              id: `edge_${Date.now()}`,
+              src_module: srcNode.data.module.id,
+              src_port: srcPort.name,
+              dst_module: dstNode.data.module.id,
+              dst_port: dstPort.name,
+              wire_name,
+            } satisfies ConnectionData,
+          },
         },
-        wireName,
-      },
-    };
-    set({ edges: addEdge(newEdge, get().edges) });
+        get().edges
+      ),
+    });
   },
 
-  addModule: (module, position) => {
-    const node = {
-      id: module.id,
-      type: NODE_TYPE_LAYOUT[module.type] || 'moduleNode',
-      position: position || module.position || { x: 0, y: 0 },
-      data: { module },
-    };
-    set({ nodes: [...get().nodes, node] });
-  },
+  addNode: (node) => set({ nodes: [...get().nodes, node] }),
 
-  removeModule: (id) => {
+  removeNode: (id) => {
     set({
       nodes: get().nodes.filter((n) => n.id !== id),
       edges: get().edges.filter((e) => e.source !== id && e.target !== id),
@@ -141,26 +122,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
   },
 
-  updateModulePosition: (id, position) => {
+  updateNodeData: (id, data) => {
     set({
-      nodes: get().nodes.map((n) =>
-        n.id === id ? { ...n, position } : n
-      ),
+      nodes: get().nodes.map((n) => {
+        if (n.id === id) {
+          return { ...n, data: { ...n.data, module: { ...n.data.module, ...data } } };
+        }
+        return n;
+      }),
     });
-  },
-
-  updateModuleConfig: (id, config) => {
-    set({
-      nodes: get().nodes.map((n) =>
-        n.id === id
-          ? { ...n, data: { ...n.data, module: { ...n.data.module, config } } }
-          : n
-      ),
-    });
-  },
-
-  removeConnection: (id) => {
-    set({ edges: get().edges.filter((e) => e.id !== id) });
   },
 
   selectNode: (id) => set({ selectedNodeId: id, selectedEdgeId: null }),
@@ -168,37 +138,42 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   buildIR: (topModuleName): IR => {
     const { nodes, edges } = get();
-    const modules: Module[] = nodes.map((n) => n.data.module);
-    const connections: Connection[] = edges.map((e) => e.data.connection);
     return {
       version: '1.0',
       top_module_name: topModuleName,
-      modules,
-      connections,
+      modules: nodes.map((n) => n.data.module),
+      connections: edges.map((e) => {
+        const ed = (e.data || {}) as Record<string, unknown>;
+        return (ed.connection as ConnectionData) || {
+          id: e.id,
+          src_module: e.source,
+          src_port: e.sourceHandle || '',
+          dst_module: e.target,
+          dst_port: e.targetHandle || '',
+          wire_name: ed.wire_name as string | undefined,
+        };
+      }),
       wrapped_modules: [],
     };
   },
 
   loadCanvas: (ir) => {
-    nodeCounter = 0;
-    edgeCounter = 0;
-    const nodes = ir.modules.map((m) => ({
+    const nodes: Node<ModuleNodeData>[] = ir.modules.map((m) => ({
       id: m.id,
-      type: NODE_TYPE_LAYOUT[m.type] || 'moduleNode',
-      position: { x: m.position[0], y: m.position[1] },
+      type: m.type,
+      position: m.position ? { x: m.position[0], y: m.position[1] } : { x: 0, y: 0 },
       data: { module: m },
     }));
-    const edges = ir.connections.map((c) => ({
-      id: c.id,
+    const edges: Edge[] = ir.connections.map((c, i) => ({
+      id: c.id || `edge_${i}`,
       source: c.src_module,
       target: c.dst_module,
       sourceHandle: c.src_port,
       targetHandle: c.dst_port,
       type: 'smoothstep',
-      data: {
-        connection: c,
-        wireName: c.wire_name || `${c.src_module}_${c.src_port}`,
-      },
+      animated: true,
+      style: { stroke: '#1a56db', strokeWidth: 2 },
+      data: { wire_name: c.wire_name, connection: c },
     }));
     set({ nodes, edges, selectedNodeId: null, selectedEdgeId: null });
   },
