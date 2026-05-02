@@ -1,9 +1,9 @@
 ﻿# FPGA 可视化编程工具 — 使用与测试手册
 
-> **版本**：0.2.0  
+> **版本**：0.3.0  
 > **更新日期**：2026-05-02  
 > **适用对象**：开发者、测试人员、用户  
-> **本次更新**：修复拖放定位、改进 UI 设计、优化模块放置逻辑  
+> **本次更新**：前端完全重写（参考设计 UI）、前后端字段命名对齐、全部 API 接通、修复 @xyflow/react v12 兼容性  
 
 ---
 
@@ -106,11 +106,13 @@ httpx>=0.28.0
 **前端依赖（package.json 核心）：**
 
 ```
-react 18, react-dom 18
+react 19, react-dom 19
 @xyflow/react 12 (ReactFlow)
 zustand 5 (状态管理)
 @monaco-editor/react (代码编辑器)
 dagre (布局算法)
+lucide-react (图标库)
+motion (动画库, framer-motion)
 tailwindcss 4, @tailwindcss/vite
 vite 8
 ```
@@ -173,17 +175,16 @@ project/
 │       │   └── simulationStore.ts  # 仿真状态 (编译/运行/波形)
 │       └── components/
 │           ├── layout/
-│           │   ├── MenuBar.tsx     # 顶部菜单栏
-│           │   ├── Toolbar.tsx     # 工具栏按钮
+│           │   ├── Header.tsx      # 顶部工具栏
 │           │   └── StatusBar.tsx   # 底部状态栏
 │           ├── panels/
-│           │   ├── LeftPanel.tsx   # 左侧面板 (库/信号/文件)
-│           │   ├── RightPanel.tsx  # 右侧面板 (属性编辑器)
-│           │   └── BottomPanel.tsx # 底部面板 (代码/日志/波形)
+│           │   ├── ModuleLibrary.tsx   # 左侧模块库面板
+│           │   ├── PropertiesPanel.tsx # 右侧属性编辑面板
+│           │   └── BottomPanel.tsx     # 底部面板 (代码/日志/波形)
 │           └── canvas/
-│               ├── CanvasView.tsx  # 画布主视图
+│               ├── Canvas.tsx      # 画布主视图
 │               └── nodes/
-│                   └── ModuleNode.tsx # 自定义模块节点
+│                   └── BaseModuleNode.tsx # 自定义模块节点
 │
 └── FPGA_VISUAL_TOOL_MANUAL.md      # 本手册
 ```
@@ -713,77 +714,47 @@ curl -X POST http://localhost:8000/api/project/load \
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ ⚡ 菜单栏 (MenuBar)    FPGA项目 — FPGA 可视化编程工具  ● ● ● │
-├──────────────────────────────────────────────────────┤
-│  工具栏 (Toolbar)  📄新建 📂打开 💾保存 │ ↩撤销 ↪重做 │    │
-│                    ⚙Top 🧪TB ▶编译 ⚡仿真 │ 📋解析     │
+│ Header (bg-primary 深蓝)                               │
+│ 🖥 FPGA Visual Builder  File Edit Testbench │ 💾SAVE ✨LAYOUT 📝GENERATE ▶SIMULATE │
 ├────────────┬────────────────────────┬────────────────┤
-│  左侧面板   │                        │  右侧面板       │
-│  (LeftPanel)│     画布 (Canvas)       │  (RightPanel)  │
-│  📦模块库   │    ReactFlow 节点+连线   │  📋属性        │
-│  📡信号    │                        │  模块属性       │
-│  📁文件    │   背景网格 · 控件 · 小地图 │  端口列表       │
-│            │                        │  配置与删除     │
-│  分类筛选   │   节点可拖拽移动          │               │
-│  搜索过滤   │   drop 定位精准          │               │
+│ ModuleLibrary │                    │ PropertiesPanel│
+│ (w-64)       │   Canvas (flex-1)    │ (280px 可折叠)  │
+│              │                      │                │
+│ 🔍 搜索      │ ReactFlow 节点+连线  │ ⚙ 属性编辑器   │
+│ ⊿ 门电路    │ 背景网格 · 控件 · 小地图│ 模块/连线详情  │
+│ ∑ 组合逻辑  │                      │ 端口列表       │
+│ ⏳ 时序逻辑  │ 节点可拖拽移动        │ 配置与删除     │
+│ ⚡ IO接口    │ drop 精确定位         │               │
+│              │ 连线方向/多驱/自连验证 │               │
 ├────────────┴────────────────────────┴────────────────┤
-│  底部面板 (BottomPanel)  📝代码 │ 📜日志 │ 〰波形       │
-│  ┌──────────────────────────────────────────────────┐ │
-│  │  Monaco Editor — Verilog 语法高亮 · 暗/亮自适应     │ │
-│  └──────────────────────────────────────────────────┘ │
+│ BottomPanel (motion 可折叠, h=200)  代码 │ 日志 │ 波形 │
+│ ┌──────────────────────────────────────────────────┐ │
+│ │ Monaco Editor — Verilog 语法高亮 · 暗/亮自适应    │ │
+│ └──────────────────────────────────────────────────┘ │
 ├──────────────────────────────────────────────────────┤
-│  状态栏  ● 就绪 │ ⊞ 模块 3  ↔ 连线 5 │ ⊞ 吸附 ON  ☀ 亮色 │
+│ StatusBar (h-6)  ● 就绪 │ Nodes:3 | Edges:5 │ SNAP  LIGHT │
 └──────────────────────────────────────────────────────┘
 ```
 
-### 6.2 菜单栏
+### 6.2 Header 工具栏（合并菜单栏 + 工具栏）
 
-| 菜单 | 选项 | 快捷键 | 说明 |
-|------|------|:---:|------|
-| 文件(F) | 新建项目 | Ctrl+N | 清空画布，创建新工程 |
-| | 打开项目 | Ctrl+O | 加载 .fpga.json 文件 |
-| | 保存 | Ctrl+S | 保存当前工程 |
-| | 另存为... | Ctrl+Shift+S | 保存到指定路径 |
-| | 导出 Verilog | Ctrl+E | 导出生成的 Verilog 代码 |
-| | 退出 | — | 关闭应用 |
-| 编辑(E) | 撤销 | Ctrl+Z | 撤销上一步操作 |
-| | 重做 | Ctrl+Y | 重做已撤销操作 |
-| | 删除选中 | Delete | 删除选中的模块或连线 |
-| | 全选 | Ctrl+A | 选中画布上所有模块 |
-| 视图(V) | 切换左侧面板 | Ctrl+B | 显示/隐藏左侧面板 |
-| | 切换右侧面板 | Ctrl+Shift+P | 显示/隐藏属性面板 |
-| | 切换底部面板 | Ctrl+J | 显示/隐藏底部面板 |
-| | 放大 | Ctrl+= | 放大画布 |
-| | 缩小 | Ctrl+- | 缩小画布 |
-| | 适应画布 | Ctrl+0 | 自动调整画布视图 |
-| 生成(G) | 生成 Top 模块 | F5 | 调用后端生成顶层代码 |
-| | 生成 Testbench | F6 | 调用后端生成测试代码 |
-| | 编译 | F7 | 编译 HDL 源文件 |
-| | 仿真 | F8 | 运行仿真 |
-| 帮助(H) | 使用手册 | — | 查看帮助文档 |
-| | 关于 | — | 版本和版权信息 |
+v0.3.0 将原 MenuBar 和 Toolbar 合并为单一 Header 组件（深蓝 bg-primary h-12）。
 
-### 6.3 工具栏
+**左侧区域：**
+- 🖥 FPGA Visual Builder 标题 + File / Edit / Testbench 导航按钮
 
-工具栏按钮分为 5 组，使用分组分隔符清晰区分：
+**右侧按钮组：**
 
-| 组 | 按钮 | 说明 |
-|:---:|------|------|
-| 文件 | 📄 新建 | 创建空白项目 |
-| | 📂 打开 | 打开工程文件 |
-| | 💾 保存 | 保存当前工程 |
-| 编辑 | ↩ 撤销 | 撤销操作 |
-| | ↪ 重做 | 重做操作 |
-| 生成 | ⚙ **Top** | 生成顶层模块 Verilog，结果自动显示在底部代码面板（蓝色边框高亮） |
-| | 🧪 **TB** | 生成 Testbench，结果自动显示在底部代码面板 |
-| | ▶ **编译** | 编译 HDL 源文件（实心强调按钮） |
-| | ⚡ **仿真** | 运行仿真（实心强调按钮） |
-| 工具 | 📋 解析 | 从 Verilog 文件解析模块信息 |
+| 按钮 | 图标 | 功能 |
+|------|------|------|
+| SAVE | 💾 Save | 调用 buildIR + saveProject API，保存为 .fpga.json |
+| LAYOUT | ✨ Wand2 | dagre 自动布局排布模块 |
+| GENERATE | 📝 Code | 调用 /api/generate/top，结果显示在底部 CODE 面板 |
+| SIMULATE | ▶ Play | 打开底部日志面板（完整仿真待后端 ModelSim） |
 
-按钮样式分三种：
-- **普通按钮**：灰色背景，hover 时高亮
-- **轮廓按钮** (Top/TB)：蓝色边框，半透明背景
-- **强调按钮** (编译/仿真)：实心蓝色，白色文字，带发光阴影
+按钮位于 bg-white/10 半透明圆角容器内，使用 lucide-react 图标 + 大写标签，竖线分隔。
+
+### 6.3 模块库与左侧面板
 
 ### 6.4 模块库与左侧面板
 
@@ -1321,10 +1292,12 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 | 组件 | 版本 | 许可证 |
 |------|------|------|
-| React | 18.x | MIT |
+| React | 19.x | MIT |
 | @xyflow/react | 12.x | MIT |
 | Zustand | 5.x | MIT |
 | Monaco Editor | 0.x | MIT |
+| lucide-react | 1.x | ISC |
+| motion (framer) | 12.x | MIT |
 | Tailwind CSS | 4.x | MIT |
 | Vite | 8.x | MIT |
 | FastAPI | 0.115+ | MIT |
@@ -1334,11 +1307,12 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ---
 
-> **文档版本**：0.2.0 | **生成日期**：2026-05-02 | **作者**：FPGA Visual Tool Team
+> **文档版本**：0.3.0 | **生成日期**：2026-05-02 | **作者**：FPGA Visual Tool Team
 > 
 > ### 版本历史
 > 
 > | 版本 | 日期 | 变更 |
 > |------|------|------|
+> | 0.3.0 | 2026-05-02 | **前端完全重写**：采用专业 FPGA IDE 参考设计 UI。新布局 Header + ModuleLibrary(w-64) + Canvas + PropertiesPanel(280px可折叠) + BottomPanel(200px可折叠) + StatusBar(h-6)。lucide-react 图标 + motion 动画。**修复 @xyflow/react v12 兼容性**：type/value 导入分离。**修复前后端字段命名对齐**：camelCase → snake_case（src_module, wire_name, instance_name）匹配 Pydantic 模型。**修复保存流程**：SAVE 按钮调用 buildIR 确保 IR 不为空。TS 6.0 兼容 + dagre 类型声明。构建通过 tsc + vite build。v0.3.0 发布至 GitHub |
 > | 0.2.0 | 2026-05-02 | 修复拖放定位（screenToFlowPosition）、修复模块拖动、全新 UI 设计（GitHub 风格配色、渐变节点头部、发光端口手柄、圆角卡片、分类 chip 筛选）、工具栏按钮样式分级、状态栏状态指示灯、Monaco Editor 暗/亮自动切换 |
 > | 0.1.0 | 2026-05-02 | 初始版本：后端 9 API + 23 测试，前端 18 文件 + 19 模块库 + ReactFlow 画布 + Monaco 编辑器 |
